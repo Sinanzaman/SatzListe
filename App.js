@@ -2,20 +2,23 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import {
   StyleSheet,
   Text,
   View,
   TextInput,
-  SafeAreaView,
   Pressable,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   Alert,
 } from 'react-native';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 
-export default function App() {
+function MainApp() {
   const [german, setGerman] = useState('');
   const [turkish, setTurkish] = useState('');
   const [selectedWord, setSelectedWord] = useState(null); // { key, label }
@@ -39,6 +42,10 @@ export default function App() {
   const [showSentence, setShowSentence] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [editingId, setEditingId] = useState(null); // mevcut kaydı düzenleme
+  const exportJson = useMemo(
+    () => JSON.stringify({ version: 1, sentences, dict: globalDict }, null, 2),
+    [sentences, globalDict]
+  );
   const [search, setSearch] = useState('');
   const filteredSentences = useMemo(() => {
     const list = sentences || [];
@@ -224,8 +231,119 @@ export default function App() {
     }
   };
 
+  const parseImported = (text) => {
+    try {
+      const obj = JSON.parse(text);
+      const sentencesIn = obj.sentences || obj.Sentences || [];
+      const dictIn = obj.dict || obj.words || obj.dictionary || {};
+      if (!Array.isArray(sentencesIn) || typeof dictIn !== 'object' || dictIn === null) {
+        return null;
+      }
+      return { sentences: sentencesIn, dict: dictIn };
+    } catch {
+      return null;
+    }
+  };
+
+  const exportToFile = async () => {
+    try {
+      const filename = `satzliste-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const path = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(path, exportJson, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        try {
+          // Bazı cihazlarda mime/UTI verilince hata oluşabiliyor; sade çağrı daha stabil
+          await Sharing.shareAsync(path);
+          return;
+        } catch (e) {
+          // Android için SAF ile yedekleme dene
+          if (Platform.OS === 'android') {
+            const ok = await exportToFileAndroidSaf(filename, exportJson);
+            if (ok) return;
+          }
+          throw e;
+        }
+      }
+      // Paylaşım yoksa veya başarısızsa: Android SAF dene, değilse yol bilgisini ver
+      if (Platform.OS === 'android') {
+        const ok = await exportToFileAndroidSaf(filename, exportJson);
+        if (ok) return;
+      }
+      Alert.alert('Hazırlandı', `Paylaşım kullanılamıyor. Dosya geçici klasöre yazıldı:\n${path}`);
+    } catch (e) {
+      Alert.alert('Hata', 'Dosyaya kaydetme/paylaşma sırasında sorun oluştu.');
+    }
+  };
+
+  async function exportToFileAndroidSaf(filename, contents) {
+    try {
+      const perms = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!perms.granted) return false;
+      const dirUri = perms.directoryUri;
+      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        dirUri,
+        filename,
+        'application/json'
+      );
+      await FileSystem.writeAsStringAsync(fileUri, contents, { encoding: FileSystem.EncodingType.UTF8 });
+      Alert.alert('Kaydedildi', 'JSON dosyası seçtiğiniz klasöre kaydedildi.');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const importFromFile = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: 'application/json', multiple: false, copyToCacheDirectory: true });
+      // New API returns {assets, canceled}
+      if (res.canceled) return;
+      const asset = res.assets && res.assets[0] ? res.assets[0] : res;
+      if (!asset || !asset.uri) return;
+      const content = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const data = parseImported(content);
+      if (!data) {
+        Alert.alert('Geçersiz veri', 'JSON formatı veya veri yapısı hatalı.');
+        return;
+      }
+      Alert.alert('İçe Aktarma', 'Bu verileri mevcut verilerle nasıl uygulayalım?', [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Birleştir',
+          onPress: () => {
+            // merge
+            setSentences((prev) => {
+              const byId = new Set(prev.map((s) => s.id));
+              const merged = [...prev];
+              (data.sentences || []).forEach((s) => {
+                if (s && typeof s === 'object' && s.id && !byId.has(s.id)) merged.push(s);
+              });
+              return merged;
+            });
+            setGlobalDict((prev) => ({ ...(data.dict || {}), ...prev }));
+            Alert.alert('Tamamlandı', 'Veriler birleştirildi.');
+          },
+        },
+        {
+          text: 'Yerine Yaz',
+          style: 'destructive',
+          onPress: () => {
+            setSentences(Array.isArray(data.sentences) ? data.sentences : []);
+            setGlobalDict(data.dict && typeof data.dict === 'object' ? data.dict : {});
+            Alert.alert('Tamamlandı', 'Veriler değiştirildi.');
+          },
+        },
+      ]);
+    } catch (e) {
+      Alert.alert('Hata', 'Dosya alınamadı veya okunamadı.');
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar style="auto" />
       <KeyboardAvoidingView
         style={styles.flex}
@@ -353,6 +471,14 @@ export default function App() {
                     autoCapitalize="none"
                   />
                 </View>
+                <View style={styles.actions}>
+                  <Pressable style={[styles.button, styles.secondary]} onPress={importFromFile}>
+                    <Text style={[styles.buttonText, styles.secondaryText]}>Dosyadan Yükle</Text>
+                  </Pressable>
+                  <Pressable style={[styles.button, styles.primary]} onPress={exportToFile}>
+                    <Text style={[styles.buttonText, styles.primaryText]}>Dosyaya Kaydet</Text>
+                  </Pressable>
+                </View>
                 {(search ? filteredSentences : sentences).length === 0 ? (
                   <Text style={styles.muted}>Henüz kayıtlı cümle yok.</Text>
                 ) : (
@@ -469,7 +595,7 @@ export default function App() {
                         <Text style={styles.translationText}>{sentences[studyIndex].turkish}</Text>
                       </View>
                     )}
-                    <View style={styles.actions}>
+                    <View style={styles.actionsCentered}>
                       <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowTranslation((v) => !v)}>
                         <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? 'Çeviriyi Gizle' : 'Çeviriyi Göster'}</Text>
                       </Pressable>
@@ -524,6 +650,12 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  actionsCentered: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     gap: 12,
     marginTop: 8,
   },
@@ -745,4 +877,12 @@ function tokenizeWithSeparators(text) {
     out.push({ type: 'sep', label: text.slice(lastIndex) });
   }
   return out;
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <MainApp />
+    </SafeAreaProvider>
+  );
 }
