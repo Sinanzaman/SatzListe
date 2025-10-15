@@ -2,9 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
-import * as DocumentPicker from 'expo-document-picker';
-import * as Sharing from 'expo-sharing';
+// removed: import * as FileSystem from 'expo-file-system';
+// removed: import * as DocumentPicker from 'expo-document-picker';
+// removed: import * as Sharing from 'expo-sharing';
 import {
   StyleSheet,
   Text,
@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  FlatList,
   Alert,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -30,22 +31,25 @@ function MainApp() {
   // Geçerli cümleye özel kelime anlamları
   const [localWordMeanings, setLocalWordMeanings] = useState({}); // key(lower) -> meaning
 
-  // Kayıtlı cümleler listesi
+  // Kayıtlı Cümleler listesi
   const [sentences, setSentences] = useState([]);
 
   // Basit ekran yöneticisi (navigation bağımlılığı olmadan)
   const [screen, setScreen] = useState('write'); // 'write' | 'list' | 'study'
   const [studyIndex, setStudyIndex] = useState(null);
+  const [studyLessonIndex, setStudyLessonIndex] = useState(null); // null: ders listesi; sayı: seçili ders
+  const [note, setNote] = useState('');
+  const [showNote, setShowNote] = useState(false);
   const [wordLayouts, setWordLayouts] = useState({}); // idx -> {x,y,width,height}
   const [popup, setPopup] = useState(null); // { idx, key, label, meaning, x, y }
   const [showTranslation, setShowTranslation] = useState(false);
   const [showSentence, setShowSentence] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [editingId, setEditingId] = useState(null); // mevcut kaydı düzenleme
-  const exportJson = useMemo(
-    () => JSON.stringify({ version: 1, sentences, dict: globalDict }, null, 2),
-    [sentences, globalDict]
-  );
+  const [editingId, setEditingId] = useState(null); // mevcut kaydı Düzenleme
+  // const exportJson = useMemo(
+  //   () => JSON.stringify({ version: 1, sentences, dict: globalDict }, null, 2),
+  //   [sentences, globalDict]
+  // );
   const [search, setSearch] = useState('');
   const filteredSentences = useMemo(() => {
     const list = sentences || [];
@@ -56,6 +60,23 @@ function MainApp() {
       (s.turkish || '').toLocaleLowerCase('tr').includes(q)
     );
   }, [sentences, search]);
+
+  // Cümleleri 10'arlı derslere böl
+  const lessons = useMemo(() => {
+    const list = sentences || [];
+    const out = [];
+    for (let i = 0; i < list.length; i += 10) {
+      out.push(list.slice(i, i + 10));
+    }
+    return out;
+  }, [sentences]);
+
+  // Hızlı erişim için id -> index haritası
+  const idToIndex = useMemo(() => {
+    const m = new Map();
+    (sentences || []).forEach((it, i) => m.set(it.id, i));
+    return m;
+  }, [sentences]);
 
   const STORAGE_SENTENCES = 'satzliste.sentences.v1';
   const STORAGE_DICT = 'satzliste.dict.v1';
@@ -72,13 +93,13 @@ function MainApp() {
           try {
             const parsed = JSON.parse(rawSentences);
             if (Array.isArray(parsed)) setSentences(parsed);
-          } catch {}
+          } catch { }
         }
         if (rawDict) {
           try {
             const parsed = JSON.parse(rawDict);
             if (parsed && typeof parsed === 'object') setGlobalDict(parsed);
-          } catch {}
+          } catch { }
         }
       } finally {
         setHydrated(true);
@@ -91,14 +112,14 @@ function MainApp() {
     if (!hydrated) return;
     try {
       AsyncStorage.setItem(STORAGE_SENTENCES, JSON.stringify(sentences));
-    } catch {}
+    } catch { }
   }, [sentences, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
     try {
       AsyncStorage.setItem(STORAGE_DICT, JSON.stringify(globalDict));
-    } catch {}
+    } catch { }
   }, [globalDict, hydrated]);
 
   const handleClear = () => {
@@ -108,6 +129,8 @@ function MainApp() {
     setSelectedWord(null);
     setSelectedMeaning('');
     setEditingId(null);
+    setNote('');
+    setShowNote(false);
   };
 
   // Metinden kelimeleri çıkar (benzersiz) ve görünen etiketi koru
@@ -171,7 +194,7 @@ function MainApp() {
       setSentences((prev) =>
         prev.map((it) =>
           it.id === editingId
-            ? { ...it, german: german.trim(), turkish: turkish.trim(), words: wordsMap }
+            ? { ...it, german: german.trim(), turkish: turkish.trim(), words: wordsMap, note: note.trim() }
             : it
         )
       );
@@ -181,8 +204,9 @@ function MainApp() {
         german: german.trim(),
         turkish: turkish.trim(),
         words: wordsMap,
+        note: note.trim(),
       };
-      setSentences((prev) => [item, ...prev]);
+      setSentences((prev) => [...prev, item]);
     }
     // global sözlüğü de güncelle (kolay ulaşım için)
     if (Object.keys(wordsMap).length) {
@@ -196,32 +220,42 @@ function MainApp() {
   const canSave = german.trim().length > 0 && turkish.trim().length > 0;
 
   // Study ekranına geçince bir cümle seç
+  // Study ekranı: ders ve indeks hazırlıkları
   useEffect(() => {
     if (screen === 'study') {
-      if (sentences.length > 0) {
-        setStudyIndex(Math.floor(Math.random() * sentences.length));
-      } else {
-        setStudyIndex(null);
-      }
       setPopup(null);
       setWordLayouts({});
       setShowTranslation(false);
       setShowSentence(false);
+      setShowNote(false);
+      if (studyLessonIndex !== null) {
+        const current = lessons[studyLessonIndex] || [];
+        if (current.length > 0) {
+          setStudyIndex(Math.floor(Math.random() * current.length));
+        } else {
+          setStudyIndex(null);
+        }
+      } else {
+        setStudyIndex(null);
+      }
     }
-  }, [screen, sentences.length]);
+  }, [screen, sentences.length, studyLessonIndex, lessons.length]);
 
   const refreshStudy = () => {
-    if (sentences.length === 0) return;
+    const current = studyLessonIndex !== null ? (lessons[studyLessonIndex] || []) : [];
+    if (current.length === 0) return;
     setPopup(null);
     setWordLayouts({});
-    setStudyIndex(Math.floor(Math.random() * sentences.length));
+    setStudyIndex(Math.floor(Math.random() * current.length));
     setShowTranslation(false);
     setShowSentence(false);
+    setShowNote(false);
   };
 
   const speakCurrent = () => {
-    if (studyIndex === null || !sentences[studyIndex]) return;
-    const text = sentences[studyIndex].german?.trim();
+    const current = studyLessonIndex !== null ? (lessons[studyLessonIndex] || []) : [];
+    if (studyIndex === null || !current[studyIndex]) return;
+    const text = current[studyIndex].german?.trim();
     if (!text) return;
     try {
       Speech.stop();
@@ -231,6 +265,7 @@ function MainApp() {
     }
   };
 
+  /*
   const parseImported = (text) => {
     try {
       const obj = JSON.parse(text);
@@ -341,6 +376,7 @@ function MainApp() {
       Alert.alert('Hata', 'Dosya alınamadı veya okunamadı.');
     }
   };
+  */
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -399,6 +435,18 @@ function MainApp() {
                 />
               </View>
 
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Not (isteğe bağlı)</Text>
+                <TextInput
+                  style={[styles.input]}
+                  placeholder="Not..."
+                  value={note}
+                  onChangeText={setNote}
+                  autoCorrect={false}
+                  multiline
+                  textAlignVertical="top"
+                />
+              </View>
               {/* Kelime çipleri */}
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>Kelime anlamları</Text>
@@ -471,20 +519,14 @@ function MainApp() {
                     autoCapitalize="none"
                   />
                 </View>
-                <View style={styles.actions}>
-                  <Pressable style={[styles.button, styles.secondary]} onPress={importFromFile}>
-                    <Text style={[styles.buttonText, styles.secondaryText]}>Dosyadan Yükle</Text>
-                  </Pressable>
-                  <Pressable style={[styles.button, styles.primary]} onPress={exportToFile}>
-                    <Text style={[styles.buttonText, styles.primaryText]}>Dosyaya Kaydet</Text>
-                  </Pressable>
-                </View>
+
                 {(search ? filteredSentences : sentences).length === 0 ? (
                   <Text style={styles.muted}>Henüz kayıtlı cümle yok.</Text>
                 ) : (
                   (search ? filteredSentences : sentences).map((s) => (
                     <View key={s.id} style={styles.card}>
                       <Text style={styles.cardGerman}>{s.german}</Text>
+                      {(() => { const idx = idToIndex.get(s.id); if (typeof idx === 'number' && idx >= 0) { const lesson = Math.floor(idx / 10) + 1; return (<Text style={styles.muted}>{'Ders ' + lesson}</Text>); } return null; })()}
                       <Text style={styles.cardTurkish}>{s.turkish}</Text>
                       <View style={styles.cardActions}>
                         <Pressable
@@ -494,6 +536,7 @@ function MainApp() {
                             setGerman(s.german);
                             setTurkish(s.turkish);
                             setLocalWordMeanings(s.words || {});
+                            setNote(s.note || '');
                             setSelectedWord(null);
                             setSelectedMeaning('');
                             setScreen('write');
@@ -524,88 +567,122 @@ function MainApp() {
                     </View>
                   ))
                 )}
-                <View style={styles.actions}>
-                  <Pressable style={[styles.button, styles.primary]} onPress={() => setScreen('write')}>
-                    <Text style={[styles.buttonText, styles.primaryText]}>Yeni Cümle</Text>
-                  </Pressable>
-                </View>
               </ScrollView>
             ) : (
               // study
-              <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-                <Text style={styles.title}>Çalışma</Text>
-                {sentences.length === 0 || studyIndex === null ? (
+              <View style={styles.container}>
+                {lessons.length === 0 ? (
                   <Text style={styles.muted}>Çalışacak cümle bulunamadı. Önce cümle ekleyin.</Text>
                 ) : (
-                  <View style={{ gap: 12 }}>
-                    <View style={styles.studyToolbar}>
-                      <Pressable style={[styles.iconButton]} onPress={speakCurrent}>
-                        <Text style={styles.iconText}>🔊</Text>
-                      </Pressable>
-                      <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowSentence((v) => !v)}>
-                        <Text style={[styles.buttonText, styles.secondaryText]}>{showSentence ? 'Cümleyi Gizle' : 'Cümleyi Göster'}</Text>
-                      </Pressable>
+                  studyLessonIndex === null ? (
+                    <View>
+                      <Text style={styles.title}>Dersler</Text>
+                      <FlatList
+                        data={lessons}
+                        keyExtractor={(item, index) => `lesson-${index}`}
+                        renderItem={({ item, index }) => (
+                          <Pressable style={styles.card} onPress={() => {
+                            setStudyLessonIndex(index); setShowTranslation(false); setShowSentence(false);
+                            setShowNote(false);
+                          }}>
+                            <Text style={styles.cardGerman}>{`Ders ${index + 1}`}</Text>
+                            <Text style={styles.cardTurkish}>{`Cümleler ${index * 10 + 1}-${index * 10 + item.length} • ${item.length} cümle`}</Text>
+                          </Pressable>
+                        )}
+                        contentContainerStyle={{ gap: 12 }}
+                      />
                     </View>
-                    <View style={styles.studyBox} onLayout={() => { /* container for absolute popup */ }}>
-                      {/* Cümleyi tokenlara böl ve sadece istenince göster */}
-                      {showSentence ? (
-                        <View style={styles.studySentenceContainer}>
-                          {tokenizeWithSeparators(sentences[studyIndex].german).map((part, idx) => {
-                            if (part.type === 'sep') {
-                              return (
-                                <Text key={`s${idx}`} style={styles.studySep}>{part.label}</Text>
-                              );
-                            }
-                            const key = part.label.toLocaleLowerCase('tr');
-                            const meaning = sentences[studyIndex].words[key] ?? globalDict[key];
-                            const isKnown = !!meaning;
-                            return (
-                              <Pressable
-                                key={`w${idx}`}
-                                onLayout={(e) => {
-                                  const { x, y, width, height } = e.nativeEvent.layout;
-                                  setWordLayouts((prev) => ({ ...prev, [idx]: { x, y, width, height } }));
-                                }}
-                                onPress={() => {
-                                  if (!isKnown) return;
-                                  const layout = wordLayouts[idx];
-                                  if (!layout) return;
-                                  setPopup({ idx, key, label: part.label, meaning, x: layout.x, y: layout.y + layout.height + 4 });
-                                }}
-                                style={styles.studyWordWrapper}
-                              >
-                                <Text style={[styles.studyWord, isKnown && styles.underlined]}>{part.label}</Text>
-                              </Pressable>
-                            );
-                          })}
-                          {popup && (
-                            <Pressable onPress={() => setPopup(null)} style={[styles.popup, { left: popup.x, top: popup.y }]}> 
-                              <Text style={styles.popupTitle}>{popup.label}</Text>
-                              <Text style={styles.popupMeaning}>{popup.meaning}</Text>
-                            </Pressable>
-                          )}
-                        </View>
-                      ) : (
-                        <Text style={styles.muted}>Cümle gizli. Dinlemek için hoparlöre basın.</Text>
-                      )}
-                    </View>
-                    {showTranslation && (
-                      <View style={styles.translationBox}>
-                        <Text style={styles.translationLabel}>Türkçe</Text>
-                        <Text style={styles.translationText}>{sentences[studyIndex].turkish}</Text>
+                  ) : (
+                    <View style={{ gap: 12 }}>
+                      <Text style={styles.title}>{`Ders ${(studyLessonIndex ?? 0) + 1}`}</Text>
+                      <View style={styles.studyToolbar}>
+                        <Pressable style={[styles.iconButton]} onPress={speakCurrent}>
+                          <Text style={styles.iconText}>🔊</Text>
+                        </Pressable>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowSentence((v) => !v)}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{showSentence ? 'Cümleyi Gizle' : 'Cümleyi Göster'}</Text>
+                        </Pressable>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => {
+                          setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
+                          setShowNote(false); setShowTranslation(false);
+                        }}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>Derslere Dön</Text>
+                        </Pressable>
                       </View>
-                    )}
-                    <View style={styles.actionsCentered}>
-                      <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowTranslation((v) => !v)}>
-                        <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? 'Çeviriyi Gizle' : 'Çeviriyi Göster'}</Text>
-                      </Pressable>
-                      <Pressable style={[styles.button, styles.primary]} onPress={refreshStudy}>
-                        <Text style={[styles.buttonText, styles.primaryText]}>Yenile</Text>
-                      </Pressable>
+                      <View style={styles.studyBox}>
+                        {showSentence ? (
+                          <View style={styles.studySentenceContainer}>
+                            <Text>
+                              {tokenizeWithSeparators(lessons[studyLessonIndex][studyIndex]?.german || '').map((part, idx) => {
+                                if (part.type === 'sep') {
+                                  // Ayırıcılar da <Text> içinde kalsın
+                                  return (
+                                    <Text key={`s${idx}`} style={styles.studySep}>
+                                      {part.label}
+                                    </Text>
+                                  );
+                                }
+                                const key = part.label.toLocaleLowerCase('tr');
+                                const meaning =
+                                  (lessons[studyLessonIndex][studyIndex]?.words || {})[key] ?? globalDict[key];
+                                const isKnown = !!meaning;
+
+                                return (
+                                  <Text
+                                    key={`w${idx}`}
+                                    onPress={() => {
+                                      if (!isKnown) return;
+                                      // Basit konum: sabit offset; istersen sonra hizalamayı geliştiririz
+                                      setPopup({ idx, key, label: part.label, meaning, x: 12, y: 28 });
+                                    }}
+                                    style={[styles.studyWord, isKnown && styles.underlined]}
+                                  >
+                                    {part.label}
+                                  </Text>
+                                );
+                              })}
+                            </Text>
+
+                            {popup && (
+                              <Pressable onPress={() => setPopup(null)} style={[styles.popup, { left: popup.x, top: popup.y }]}>
+                                <Text style={styles.popupTitle}>{popup.label}</Text>
+                                <Text style={styles.popupMeaning}>{popup.meaning}</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ) : (
+                          <Text style={styles.muted}>Cümle gizli. Dinlemek için hoparlöre basın.</Text>
+                        )}
+                      </View>
+                      {showTranslation && (
+                        <View style={styles.translationBox}>
+                          <Text style={styles.translationLabel}>Türkçe</Text>
+                          <Text style={styles.translationText}>{lessons[studyLessonIndex][studyIndex]?.turkish}</Text>
+                        </View>
+                      )}
+                      {(() => { const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null; const noteText = (cs && cs.note) ? String(cs.note).trim() : ''; if (!showNote || !noteText) return null; return (<View style={styles.translationBox}><Text style={styles.translationLabel}>Not</Text><Text style={styles.translationText}>{noteText}</Text></View>); })()}
+                      <View style={styles.actionsCentered}>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowTranslation((v) => !v)}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? 'Çeviriyi Gizle' : 'Çeviriyi Göster'}</Text>
+                        </Pressable>
+                        {(() => {
+                          const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null;
+                          const noteText = (cs && cs.note) ? String(cs.note).trim() : "";
+                          if (!noteText) return null;
+                          return (
+                            <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowNote(v => !v)}>
+                              <Text style={[styles.buttonText, styles.secondaryText]}>{showNote ? "Notu Gizle" : "Notu Göster"}</Text>
+                            </Pressable>
+                          );
+                        })()}
+                        <Pressable style={[styles.button, styles.primary]} onPress={refreshStudy}>
+                          <Text style={[styles.buttonText, styles.primaryText]}>Başka Cümle</Text>
+                        </Pressable>
+                      </View>
                     </View>
-                  </View>
+                  )
                 )}
-              </ScrollView>
+              </View>
             )
           )}
         </View>
@@ -886,3 +963,7 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+
+
+
+
