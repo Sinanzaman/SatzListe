@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // removed: import * as FileSystem from 'expo-file-system';
@@ -18,6 +18,8 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { PanResponder } from 'react-native';
+import { Animated, Easing } from 'react-native';
 
 function MainApp() {
   const [german, setGerman] = useState('');
@@ -40,6 +42,8 @@ function MainApp() {
   const [studyLessonIndex, setStudyLessonIndex] = useState(null); // null: ders listesi; sayı: seçili ders
   const [note, setNote] = useState('');
   const [showNote, setShowNote] = useState(false);
+  const [studyOrder, setStudyOrder] = useState([]); // mevcut ders icin karistirilmis indeksler
+  const [studyPos, setStudyPos] = useState(0); // studyOrder icindeki pozisyon
   const [wordLayouts, setWordLayouts] = useState({}); // idx -> {x,y,width,height}
   const [popup, setPopup] = useState(null); // { idx, key, label, meaning, x, y }
   const [showTranslation, setShowTranslation] = useState(false);
@@ -50,6 +54,10 @@ function MainApp() {
   //   () => JSON.stringify({ version: 1, sentences, dict: globalDict }, null, 2),
   //   [sentences, globalDict]
   // );
+  // Study animasyon durumları
+  const sentenceFade = useRef(new Animated.Value(1)).current;
+  const sentenceSlide = useRef(new Animated.Value(0)).current;
+
   const [search, setSearch] = useState('');
   const filteredSentences = useMemo(() => {
     const list = sentences || [];
@@ -80,6 +88,43 @@ function MainApp() {
 
   const STORAGE_SENTENCES = 'satzliste.sentences.v1';
   const STORAGE_DICT = 'satzliste.dict.v1';
+
+  // Basit karistirma: 0..n-1'i Fisher-Yates ile karistir
+  const shuffleIndices = (n) => {
+    const a = Array.from({ length: n }, (_, i) => i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+    return a;
+  };
+
+  // Ekranlar arası yatay kaydırma ile geçiş
+  const screenOrder = ['write', 'list', 'study'];
+  const currentIndex = screenOrder.indexOf(screen);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) => {
+          const { dx, dy } = gesture;
+          // Yatay baskın hareketlerde devreye gir
+          return Math.abs(dx) > 20 && Math.abs(dx) > Math.abs(dy);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const { dx, vx } = gesture;
+          // Kısa/ yavaş hareketleri yoksay
+          if (Math.abs(dx) < 40 && Math.abs(vx) < 0.3) return;
+          if (dx < 0 && currentIndex < screenOrder.length - 1) {
+            setScreen(screenOrder[currentIndex + 1]);
+          } else if (dx > 0 && currentIndex > 0) {
+            setScreen(screenOrder[currentIndex - 1]);
+          }
+        },
+      }),
+    [currentIndex]
+  );
 
   // Başlangıçta verileri yükle
   useEffect(() => {
@@ -231,12 +276,19 @@ function MainApp() {
       if (studyLessonIndex !== null) {
         const current = lessons[studyLessonIndex] || [];
         if (current.length > 0) {
-          setStudyIndex(Math.floor(Math.random() * current.length));
+          const order = shuffleIndices(current.length);
+          setStudyOrder(order);
+          setStudyPos(0);
+          setStudyIndex(order[0]);
         } else {
           setStudyIndex(null);
+          setStudyOrder([]);
+          setStudyPos(0);
         }
       } else {
         setStudyIndex(null);
+        setStudyOrder([]);
+        setStudyPos(0);
       }
     }
   }, [screen, sentences.length, studyLessonIndex, lessons.length]);
@@ -246,10 +298,30 @@ function MainApp() {
     if (current.length === 0) return;
     setPopup(null);
     setWordLayouts({});
-    setStudyIndex(Math.floor(Math.random() * current.length));
     setShowTranslation(false);
     setShowSentence(false);
     setShowNote(false);
+
+    const needReset = !Array.isArray(studyOrder) || studyOrder.length !== current.length;
+    const order = needReset ? shuffleIndices(current.length) : studyOrder;
+    const nextPos = needReset ? 0 : ((studyPos ?? 0) + 1) % order.length;
+    const nextIndex = order[nextPos];
+
+    Animated.parallel([
+      Animated.timing(sentenceFade, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(sentenceSlide, { toValue: 20, duration: 120, useNativeDriver: true }),
+    ]).start(() => {
+      if (needReset) {
+        setStudyOrder(order);
+      }
+      setStudyPos(nextPos);
+      setStudyIndex(nextIndex);
+      sentenceSlide.setValue(-20);
+      Animated.parallel([
+        Animated.timing(sentenceFade, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(sentenceSlide, { toValue: 0, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]).start();
+    });
   };
 
   const speakCurrent = () => {
@@ -260,6 +332,17 @@ function MainApp() {
     try {
       Speech.stop();
       Speech.speak(text, { language: 'de-DE' });
+    } catch (e) {
+      // no-op
+    }
+  };
+
+  const speakSentence = (text) => {
+    const t = (text || '').trim();
+    if (!t) return;
+    try {
+      Speech.stop();
+      Speech.speak(t, { language: 'de-DE' });
     } catch (e) {
       // no-op
     }
@@ -385,7 +468,7 @@ function MainApp() {
         style={styles.flex}
         behavior={Platform.select({ ios: 'padding', android: undefined })}
       >
-        <View style={styles.flex}>
+        <View style={styles.flex} {...panResponder.panHandlers}>
           {/* Basit üst bar: ekranlar arası geçiş */}
           <View style={styles.topBar}>
             <Pressable onPress={() => setScreen('write')} style={[styles.tab, screen === 'write' && styles.tabActive]}>
@@ -528,7 +611,21 @@ function MainApp() {
                       <Text style={styles.cardGerman}>{s.german}</Text>
                       {(() => { const idx = idToIndex.get(s.id); if (typeof idx === 'number' && idx >= 0) { const lesson = Math.floor(idx / 10) + 1; return (<Text style={styles.muted}>{'Ders ' + lesson}</Text>); } return null; })()}
                       <Text style={styles.cardTurkish}>{s.turkish}</Text>
+                      <Pressable style={styles.speakerFloating} onPress={() => speakSentence(s.german)}>
+                        <Text style={styles.iconTextSmall}>🔊</Text>
+                      </Pressable>
                       <View style={styles.cardActions}>
+                        {!!String(s.note || '').trim() && (
+                          <Pressable
+                            style={styles.iconButtonSmall}
+                            onPress={() => {
+                              const t = String(s.note || '').trim();
+                              if (t) Alert.alert('Not', t);
+                            }}
+                          >
+                            <Text style={styles.iconTextSmall}>📝</Text>
+                          </Pressable>
+                        )}
                         <Pressable
                           style={[styles.button, styles.secondary]}
                           onPress={() => {
@@ -604,12 +701,15 @@ function MainApp() {
                         </Pressable>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => {
                           setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
-                          setShowNote(false); setShowTranslation(false);
+                          setShowNote(false); setShowTranslation(false); setStudyOrder([]); setStudyPos(0); setStudyIndex(null);
                         }}>
                           <Text style={[styles.buttonText, styles.secondaryText]}>Derslere Dön</Text>
                         </Pressable>
                       </View>
-                      <View style={styles.studyBox}>
+                      <Animated.View style={[
+                        styles.studyBox,
+                        { opacity: sentenceFade, transform: [{ translateX: sentenceSlide }] },
+                      ]}>
                         {showSentence ? (
                           <View style={styles.studySentenceContainer}>
                             <Text>
@@ -653,7 +753,7 @@ function MainApp() {
                         ) : (
                           <Text style={styles.muted}>Cümle gizli. Dinlemek için hoparlöre basın.</Text>
                         )}
-                      </View>
+                      </Animated.View>
                       {showTranslation && (
                         <View style={styles.translationBox}>
                           <Text style={styles.translationLabel}>Türkçe</Text>
@@ -738,7 +838,7 @@ const styles = StyleSheet.create({
   },
   button: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderRadius: 10,
   },
   secondary: {
@@ -834,6 +934,7 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    alignItems:'flex-end',
     gap: 10,
   },
   translationBox: {
@@ -870,6 +971,30 @@ const styles = StyleSheet.create({
   },
   iconText: {
     fontSize: 32,
+  },
+  iconButtonSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Cümle kartı hoparlör butonu (sol alt)
+  speakerFloating: {
+    position: 'absolute',
+    left: 12,
+    bottom: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  iconTextSmall: {
+    fontSize: 18,
   },
   studyBox: {
     borderWidth: 1,
