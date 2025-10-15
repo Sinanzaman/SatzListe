@@ -20,6 +20,7 @@ import {
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { PanResponder } from 'react-native';
 import { Animated, Easing } from 'react-native';
+import { Dimensions } from 'react-native';
 
 function MainApp() {
   const [german, setGerman] = useState('');
@@ -58,7 +59,15 @@ function MainApp() {
   const sentenceFade = useRef(new Animated.Value(1)).current;
   const sentenceSlide = useRef(new Animated.Value(0)).current;
 
+  // Cümleler ekranı alt sekmesi ve kelime düzenleme
+  const [listTab, setListTab] = useState('sentences'); // 'sentences' | 'words'
+  const [editingWordKey, setEditingWordKey] = useState(null);
+  const [editingWordMeaning, setEditingWordMeaning] = useState('');
+
   const [search, setSearch] = useState('');
+  // Kaydırma geçişi için ekran genişliği ve animasyon değeri
+  const screenWidth = useMemo(() => Dimensions.get('window').width, []);
+  const screenShift = useRef(new Animated.Value(0)).current;
   const filteredSentences = useMemo(() => {
     const list = sentences || [];
     const q = (search || '').toLocaleLowerCase('tr');
@@ -68,6 +77,23 @@ function MainApp() {
       (s.turkish || '').toLocaleLowerCase('tr').includes(q)
     );
   }, [sentences, search]);
+
+  // Kelimeler listesi (global sözlükten)
+  const wordsAll = useMemo(() => {
+    const entries = Object.entries(globalDict || {});
+    entries.sort((a, b) => a[0].localeCompare(b[0], 'tr'));
+    return entries.map(([key, meaning]) => ({ key, meaning }));
+  }, [globalDict]);
+
+  const filteredWordsAll = useMemo(() => {
+    const q = (search || '').toLocaleLowerCase('tr');
+    if (!q) return wordsAll;
+    return wordsAll.filter(
+      (w) =>
+        w.key.toLocaleLowerCase('tr').includes(q) ||
+        String(w.meaning || '').toLocaleLowerCase('tr').includes(q)
+    );
+  }, [wordsAll, search]);
 
   // Cümleleri 10'arlı derslere böl
   const lessons = useMemo(() => {
@@ -102,28 +128,46 @@ function MainApp() {
   };
 
   // Ekranlar arası yatay kaydırma ile geçiş
-  const screenOrder = ['write', 'list', 'study'];
+  const screenOrder = ['write', 'list', 'words', 'study'];
   const currentIndex = screenOrder.indexOf(screen);
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) => {
           const { dx, dy } = gesture;
-          // Yatay baskın hareketlerde devreye gir
-          return Math.abs(dx) > 20 && Math.abs(dx) > Math.abs(dy);
+          return Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy);
+        },
+        onPanResponderMove: (_, gesture) => {
+          const { dx } = gesture;
+          screenShift.setValue(dx);
         },
         onPanResponderRelease: (_, gesture) => {
           const { dx, vx } = gesture;
-          // Kısa/ yavaş hareketleri yoksay
-          if (Math.abs(dx) < 40 && Math.abs(vx) < 0.3) return;
-          if (dx < 0 && currentIndex < screenOrder.length - 1) {
-            setScreen(screenOrder[currentIndex + 1]);
-          } else if (dx > 0 && currentIndex > 0) {
-            setScreen(screenOrder[currentIndex - 1]);
+          const travel = Math.abs(dx);
+          const velocity = Math.abs(vx);
+          const goNext = dx < 0 && currentIndex < screenOrder.length - 1 && (travel > screenWidth * 0.25 || velocity > 0.5);
+          const goPrev = dx > 0 && currentIndex > 0 && (travel > screenWidth * 0.25 || velocity > 0.5);
+          if (goNext) {
+            Animated.timing(screenShift, { toValue: -screenWidth, duration: 90, useNativeDriver: true }).start(() => {
+              setScreen(screenOrder[currentIndex + 1]);
+              screenShift.setValue(screenWidth);
+              Animated.timing(screenShift, { toValue: 0, duration: 120, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+            });
+          } else if (goPrev) {
+            Animated.timing(screenShift, { toValue: screenWidth, duration: 90, useNativeDriver: true }).start(() => {
+              setScreen(screenOrder[currentIndex - 1]);
+              screenShift.setValue(-screenWidth);
+              Animated.timing(screenShift, { toValue: 0, duration: 120, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+            });
+          } else {
+            Animated.spring(screenShift, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 25 }).start();
           }
         },
+        onPanResponderTerminate: () => {
+          Animated.spring(screenShift, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 15 }).start();
+        },
       }),
-    [currentIndex]
+    [currentIndex, screenWidth]
   );
 
   // Başlangıçta verileri yükle
@@ -259,7 +303,6 @@ function MainApp() {
     }
     // formu temizle ve listeye dön
     handleClear();
-    setScreen('list');
   };
 
   const canSave = german.trim().length > 0 && turkish.trim().length > 0;
@@ -346,6 +389,54 @@ function MainApp() {
     } catch (e) {
       // no-op
     }
+  };
+
+  // Kelime düzenleme yardımcıları (Kelimeler sekmesi)
+  const startEditWord = (key) => {
+    setEditingWordKey(key);
+    setEditingWordMeaning(String(globalDict[key] || ''));
+  };
+
+  const cancelEditWord = () => {
+    setEditingWordKey(null);
+    setEditingWordMeaning('');
+  };
+
+  const deleteWordGlobal = (key) => {
+    setGlobalDict((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setSentences((prev) =>
+      prev.map((it) => {
+        const w = it.words || {};
+        if (!(key in w)) return it;
+        const nw = { ...w };
+        delete nw[key];
+        return { ...it, words: nw };
+      })
+    );
+    if (editingWordKey === key) cancelEditWord();
+  };
+
+  const saveEditWord = () => {
+    const k = editingWordKey;
+    const val = String(editingWordMeaning || '').trim();
+    if (!k) return;
+    if (!val) {
+      deleteWordGlobal(k);
+      return;
+    }
+    setGlobalDict((prev) => ({ ...prev, [k]: val }));
+    setSentences((prev) =>
+      prev.map((it) => {
+        const w = it.words || {};
+        if (!(k in w)) return it;
+        return { ...it, words: { ...w, [k]: val } };
+      })
+    );
+    cancelEditWord();
   };
 
   /*
@@ -468,7 +559,7 @@ function MainApp() {
         style={styles.flex}
         behavior={Platform.select({ ios: 'padding', android: undefined })}
       >
-        <View style={styles.flex} {...panResponder.panHandlers}>
+        <Animated.View style={[styles.flex, { transform: [{ translateX: screenShift }] }]} {...panResponder.panHandlers}>
           {/* Basit üst bar: ekranlar arası geçiş */}
           <View style={styles.topBar}>
             <Pressable onPress={() => setScreen('write')} style={[styles.tab, screen === 'write' && styles.tabActive]}>
@@ -476,6 +567,9 @@ function MainApp() {
             </Pressable>
             <Pressable onPress={() => setScreen('list')} style={[styles.tab, screen === 'list' && styles.tabActive]}>
               <Text style={[styles.tabText, screen === 'list' && styles.tabTextActive]}>Cümleler</Text>
+            </Pressable>
+            <Pressable onPress={() => setScreen('words')} style={[styles.tab, screen === 'words' && styles.tabActive]}>
+              <Text style={[styles.tabText, screen === 'words' && styles.tabTextActive]}>Kelimeler</Text>
             </Pressable>
             <Pressable onPress={() => setScreen('study')} style={[styles.tab, screen === 'study' && styles.tabActive]}>
               <Text style={[styles.tabText, screen === 'study' && styles.tabTextActive]}>Çalışma</Text>
@@ -665,6 +759,79 @@ function MainApp() {
                   ))
                 )}
               </ScrollView>
+            ) : screen === 'words' ? (
+              <ScrollView contentContainerStyle={styles.container}>
+                <Text style={styles.title}>Kelimeler</Text>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Ara</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputSingle]}
+                    placeholder="Kelime veya anlam..."
+                    value={search}
+                    onChangeText={setSearch}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                {filteredWordsAll.length === 0 ? (
+                  <Text style={styles.muted}>Henüz kelime yok.</Text>
+                ) : (
+                  filteredWordsAll.map((w) => (
+                    <View key={w.key} style={styles.card}>
+                      <Text style={styles.cardGerman}>{w.key}</Text>
+                      <Text style={styles.cardTurkish}>{w.meaning}</Text>
+                      <Pressable style={styles.speakerFloating} onPress={() => speakSentence(w.key)}>
+                        <Text style={styles.iconTextSmall}>🔊</Text>
+                      </Pressable>
+                      <View style={styles.cardActions}>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => startEditWord(w.key)}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>Düzenle</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.button, styles.danger]}
+                          onPress={() => {
+                            Alert.alert(
+                              'Kelimeyi sil',
+                              'Bu kelimenin anlamını silmek istediğinize emin misiniz?',
+                              [
+                                { text: 'Vazgeç', style: 'cancel' },
+                                { text: 'Sil', style: 'destructive', onPress: () => deleteWordGlobal(w.key) },
+                              ]
+                            );
+                          }}
+                        >
+                          <Text style={[styles.buttonText, styles.dangerText]}>Sil</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+
+                {editingWordKey && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>{`"${editingWordKey}" için anlam`}</Text>
+                    <TextInput
+                      style={[styles.input, styles.inputSingle]}
+                      placeholder="Türkçe anlam..."
+                      value={editingWordMeaning}
+                      onChangeText={setEditingWordMeaning}
+                      autoCorrect={false}
+                    />
+                    <View style={styles.actions}>
+                      <Pressable style={[styles.button, styles.secondary]} onPress={cancelEditWord}>
+                        <Text style={[styles.buttonText, styles.secondaryText]}>Kapat</Text>
+                      </Pressable>
+                      <Pressable style={[styles.button, styles.danger]} onPress={() => deleteWordGlobal(editingWordKey)}>
+                        <Text style={[styles.buttonText, styles.dangerText]}>Sil</Text>
+                      </Pressable>
+                      <Pressable style={[styles.button, styles.primary]} onPress={saveEditWord}>
+                        <Text style={[styles.buttonText, styles.primaryText]}>Kaydet</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
             ) : (
               // study
               <View style={styles.container}>
@@ -785,7 +952,7 @@ function MainApp() {
               </View>
             )
           )}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1088,6 +1255,7 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+
 
 
 
