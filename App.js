@@ -27,6 +27,10 @@ function MainApp() {
   const [turkish, setTurkish] = useState('');
   const [selectedWord, setSelectedWord] = useState(null); // { key, label }
   const [selectedMeaning, setSelectedMeaning] = useState('');
+  // Çoklu kelime (ifade) seçimi için durumlar
+  const writeTokens = useMemo(() => tokenizeWithSeparators(german), [german]);
+  const [selStart, setSelStart] = useState(null); // writeTokens içinde 'word' olan index
+  const [selEnd, setSelEnd] = useState(null);   // writeTokens içinde 'word' olan index
 
   // Global sözlük: daha önce girilen kelime anlamları (oturum boyunca)
   const [globalDict, setGlobalDict] = useState({}); // key(lower) -> meaning
@@ -277,6 +281,10 @@ function MainApp() {
       const val = localWordMeanings[k] ?? globalDict[k];
       if (val) wordsMap[k] = val;
     });
+    // Ayrıca yerel olarak eklenen çok kelimeli ifadeleri de ekle
+    Object.entries(localWordMeanings || {}).forEach(([k, v]) => {
+      if (v) wordsMap[k] = v;
+    });
 
     if (editingId) {
       // Güncelle
@@ -389,6 +397,99 @@ function MainApp() {
     } catch (e) {
       // no-op
     }
+  };
+
+  // Genel amaçlı konuşturma (dil seçmeli)
+  const speakText = (text, language) => {
+    const t = String(text || '').trim();
+    if (!t) return;
+    try {
+      Speech.stop();
+      Speech.speak(t, { language });
+    } catch (e) {
+      // no-op
+    }
+  };
+
+  // Yardımcı: verilen token dizisinde belirli bir 'word' başlangıcında en iyi (en uzun) ifade anlamını bul
+  const getBestPhraseAt = (tokens, startIdx, dict) => {
+    if (!tokens || !tokens[startIdx] || tokens[startIdx].type !== 'word') return null;
+    let best = null;
+    let currentIdx = startIdx;
+    const parts = [];
+    // En fazla 5 kelimeye kadar dene (performans/UX dengesi)
+    for (let len = 1; len <= 5; len++) {
+      const t = tokens[currentIdx];
+      if (!t || t.type !== 'word') break;
+      parts.push(t.label);
+      const label = parts.join(' ');
+      const key = label.toLocaleLowerCase('tr');
+      const meaning = dict[key];
+      if (meaning) {
+        best = { label, key, meaning, start: startIdx, end: currentIdx };
+      }
+      // sonraki kelimeye atla (word -> sep -> word)
+      if (
+        tokens[currentIdx + 1] &&
+        tokens[currentIdx + 2] &&
+        tokens[currentIdx + 1].type === 'sep' &&
+        tokens[currentIdx + 2].type === 'word'
+      ) {
+        currentIdx = currentIdx + 2;
+      } else {
+        break;
+      }
+    }
+    return best;
+  };
+
+  // Yardımcı: belirli bir kelime pozisyonunu kapsayan tüm anlamları (tekli ve ifadeler) döndür
+  const getMeaningsCovering = (tokens, pos, dict, maxLen = 5) => {
+    const results = [];
+    const seen = new Set();
+    // Tekli kelime
+    if (tokens[pos] && tokens[pos].type === 'word') {
+      const singleLabel = tokens[pos].label;
+      const singleKey = singleLabel.toLocaleLowerCase('tr');
+      const singleMeaning = dict[singleKey];
+      if (singleMeaning) {
+        results.push({ label: singleLabel, key: singleKey, meaning: singleMeaning, start: pos, end: pos });
+        seen.add(singleKey);
+      }
+    }
+    // İfadeler: pos'u kapsayan, 1..maxLen kelime uzunluğunda (>=2 olanlar)
+    for (let start = pos; start >= 0 && start >= pos - (maxLen - 1); start--) {
+      if (!tokens[start] || tokens[start].type !== 'word') continue;
+      let currentIdx = start;
+      const parts = [];
+      for (let len = 1; len <= maxLen; len++) {
+        const t = tokens[currentIdx];
+        if (!t || t.type !== 'word') break;
+        parts.push(t.label);
+        const label = parts.join(' ');
+        const key = label.toLocaleLowerCase('tr');
+        const end = currentIdx;
+        if (start <= pos && pos <= end) {
+          const meaning = dict[key];
+          if (meaning && !seen.has(key)) {
+            results.push({ label, key, meaning, start, end });
+            seen.add(key);
+          }
+        }
+        // sonraki word'e atla (word sep word)
+        if (
+          tokens[currentIdx + 1] &&
+          tokens[currentIdx + 2] &&
+          tokens[currentIdx + 1].type === 'sep' &&
+          tokens[currentIdx + 2].type === 'word'
+        ) {
+          currentIdx = currentIdx + 2;
+        } else {
+          break;
+        }
+      }
+    }
+    return results;
   };
 
   // Kelime düzenleme yardımcıları (Kelimeler sekmesi)
@@ -644,6 +745,77 @@ function MainApp() {
                 </View>
               </View>
 
+              {/* Çoklu kelime seçimi (ifade) */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Kelime grubu seçimi (çoklu kelime)</Text>
+                <View style={styles.studySentenceContainer}>
+                  <Text>
+                    {writeTokens.map((part, idx) => {
+                      if (part.type === 'sep') {
+                        return (
+                          <Text key={`ws${idx}`} style={styles.studySep}>
+                            {part.label}
+                          </Text>
+                        );
+                      }
+                      const s = selStart == null ? -1 : Math.min(selStart, selEnd ?? selStart);
+                      const e = selStart == null ? -2 : Math.max(selStart, selEnd ?? selStart);
+                      const selected = selStart != null && idx >= s && idx <= e;
+                      return (
+                        <Text
+                          key={`ww${idx}`}
+                          onPress={() => {
+                            if (!writeTokens[idx] || writeTokens[idx].type !== 'word') return;
+                            if (selStart === null) { setSelStart(idx); setSelEnd(idx); }
+                            else if (selStart !== null && selEnd !== null && selStart !== selEnd) { setSelStart(idx); setSelEnd(idx); }
+                            else { setSelEnd(idx); }
+                          }}
+                          style={[styles.studyWord, selected && styles.selectedWordWrite]}
+                        >
+                          {part.label}
+                        </Text>
+                      );
+                    })}
+                  </Text>
+                </View>
+                {(() => {
+                  if (selStart == null) return null;
+                  const s = Math.min(selStart, selEnd ?? selStart);
+                  const e = Math.max(selStart, selEnd ?? selStart);
+                  const labels = [];
+                  for (let i = s; i <= e; i++) {
+                    const t = writeTokens[i];
+                    if (t && t.type === 'word') labels.push(t.label);
+                  }
+                  const phraseLabel = labels.join(' ');
+                  const phraseKey = phraseLabel.toLocaleLowerCase('tr');
+                  const currentMeaning = meaningFor(phraseKey);
+                  return (
+                    <View style={{ gap: 8 }}>
+                      <Text style={styles.muted}>{phraseLabel ? `Seçim: ${phraseLabel}` : 'Seçim yapılmadı'}</Text>
+                      {!!currentMeaning && (
+                        <Text style={styles.muted}>{`Mevcut anlam: ${currentMeaning}`}</Text>
+                      )}
+                      <View style={styles.actions}>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => { setSelStart(null); setSelEnd(null); }}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>Seçimi Temizle</Text>
+                        </Pressable>
+                        {phraseLabel ? (
+                          <Pressable
+                            style={[styles.button, styles.primary]}
+                            onPress={() => {
+                              openWordEditor({ key: phraseKey, label: phraseLabel });
+                            }}
+                          >
+                            <Text style={[styles.buttonText, styles.primaryText]}>Seçim için anlam ekle/düzenle</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })()}
+              </View>
+
               {/* Kelime anlamı düzenleyici */}
               {selectedWord && (
                 <View style={styles.fieldGroup}>
@@ -858,19 +1030,21 @@ function MainApp() {
                     </View>
                   ) : (
                     <View style={{ gap: 12 }}>
-                      <Text style={styles.title}>{`Ders ${(studyLessonIndex ?? 0) + 1}`}</Text>
+                      <View style={[styles.studyToolbar, { flexDirection: 'row' }]}>
+                        <Text style={[styles.title, { flex: 1 }]}>{`Ders ${(studyLessonIndex ?? 0) + 1}`}</Text>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={() => {
+                          setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
+                          setShowNote(false); setShowTranslation(false); setStudyOrder([]); setStudyPos(0); setStudyIndex(null);
+                        }}>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>Ders Seç</Text>
+                        </Pressable>
+                      </View>
                       <View style={styles.studyToolbar}>
                         <Pressable style={[styles.iconButton]} onPress={speakCurrent}>
                           <Text style={styles.iconText}>🔊</Text>
                         </Pressable>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowSentence((v) => !v)}>
                           <Text style={[styles.buttonText, styles.secondaryText]}>{showSentence ? 'Cümleyi Gizle' : 'Cümleyi Göster'}</Text>
-                        </Pressable>
-                        <Pressable style={[styles.button, styles.secondary]} onPress={() => {
-                          setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
-                          setShowNote(false); setShowTranslation(false); setStudyOrder([]); setStudyPos(0); setStudyIndex(null);
-                        }}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>Derslere Dön</Text>
                         </Pressable>
                       </View>
                       <Animated.View style={[
@@ -898,9 +1072,17 @@ function MainApp() {
                                   <Text
                                     key={`w${idx}`}
                                     onPress={() => {
-                                      if (!isKnown) return;
-                                      // Basit konum: sabit offset; istersen sonra hizalamayı geliştiririz
-                                      setPopup({ idx, key, label: part.label, meaning, x: 12, y: 28 });
+                                      const dictAll = {
+                                        ...(lessons[studyLessonIndex][studyIndex]?.words || {}),
+                                        ...(globalDict || {}),
+                                      };
+                                      const entries = getMeaningsCovering(
+                                        tokenizeWithSeparators(lessons[studyLessonIndex][studyIndex]?.german || ''),
+                                        idx,
+                                        dictAll
+                                      );
+                                      if (!entries || entries.length === 0) return;
+                                      setPopup({ idx, entries, x: 12, y: 28 });
                                     }}
                                     style={[styles.studyWord, isKnown && styles.underlined]}
                                   >
@@ -912,8 +1094,33 @@ function MainApp() {
 
                             {popup && (
                               <Pressable onPress={() => setPopup(null)} style={[styles.popup, { left: popup.x, top: popup.y }]}>
-                                <Text style={styles.popupTitle}>{popup.label}</Text>
-                                <Text style={styles.popupMeaning}>{popup.meaning}</Text>
+                                {Array.isArray(popup.entries) && popup.entries.length > 0 ? (
+                                  popup.entries.map((e, i) => (
+                                    <View key={`e${i}`} style={styles.popupEntry}>
+                                      <View style={styles.popupRow}>
+                                        <Text style={styles.popupTitle}>{e.label}</Text>
+                                        <Pressable style={styles.iconButtonTiny} onPress={() => speakText(e.label, 'de-DE')}>
+                                          <Text style={styles.iconTextSmall}>🔊</Text>
+                                        </Pressable>
+                                      </View>
+                                      <View style={styles.popupRow}>
+                                        <Text style={styles.popupMeaning}>{e.meaning}</Text>
+                                      </View>
+                                    </View>
+                                  ))
+                                ) : (
+                                  <View style={styles.popupEntry}>
+                                    <View style={styles.popupRow}>
+                                      <Text style={styles.popupTitle}>{popup.label}</Text>
+                                      <Pressable style={styles.iconButtonTiny} onPress={() => speakText(popup.label, 'de-DE')}>
+                                        <Text style={styles.iconTextSmall}>🔊</Text>
+                                      </Pressable>
+                                    </View>
+                                    <View style={styles.popupRow}>
+                                      <Text style={styles.popupMeaning}>{popup.meaning}</Text>
+                                    </View>
+                                  </View>
+                                )}
                               </Pressable>
                             )}
                           </View>
@@ -998,7 +1205,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   actionsCentered: {
-    flexDirection: 'row',
+    alignItems: 'center',
+    flexDirection: 'column',
     justifyContent: 'center',
     gap: 12,
     marginTop: 8,
@@ -1101,7 +1309,7 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    alignItems:'flex-end',
+    alignItems: 'flex-end',
     gap: 10,
   },
   translationBox: {
@@ -1193,6 +1401,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     textDecorationStyle: 'solid',
   },
+  selectedWordWrite: {
+    backgroundColor: '#dbeafe',
+    borderRadius: 4,
+  },
   popup: {
     position: 'absolute',
     maxWidth: 240,
@@ -1208,6 +1420,16 @@ const styles = StyleSheet.create({
     elevation: 12,
     zIndex: 1000,
   },
+  popupEntry: {
+    marginBottom: 8,
+    gap: 4,
+  },
+  popupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   popupTitle: {
     fontSize: 14,
     fontWeight: '600',
@@ -1216,6 +1438,14 @@ const styles = StyleSheet.create({
   popupMeaning: {
     fontSize: 14,
     color: '#111',
+  },
+  iconButtonTiny: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 
