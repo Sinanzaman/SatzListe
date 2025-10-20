@@ -658,7 +658,7 @@ function MainApp() {
       <StatusBar style="auto" />
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.select({ ios: 'padding', android: undefined })}
+        behavior={Platform.select({ ios: 'padding', android: 'height' })}
       >
         <Animated.View style={[styles.flex, { transform: [{ translateX: screenShift }] }]} {...panResponder.panHandlers}>
           {/* Basit üst bar: ekranlar arası geçiş */}
@@ -682,7 +682,11 @@ function MainApp() {
               <Text style={styles.muted}>Veriler yükleniyor…</Text>
             </View>
           ) : screen === 'write' ? (
-            <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={[styles.container, styles.scrollContainer]}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={styles.title}>{editingId ? 'Düzenle' : 'Yazma'}</Text>
 
               <View style={styles.fieldGroup}>
@@ -749,34 +753,35 @@ function MainApp() {
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>Kelime grubu seçimi (çoklu kelime)</Text>
                 <View style={styles.studySentenceContainer}>
-                  <Text>
-                    {writeTokens.map((part, idx) => {
-                      if (part.type === 'sep') {
-                        return (
-                          <Text key={`ws${idx}`} style={styles.studySep}>
-                            {part.label}
-                          </Text>
-                        );
-                      }
-                      const s = selStart == null ? -1 : Math.min(selStart, selEnd ?? selStart);
-                      const e = selStart == null ? -2 : Math.max(selStart, selEnd ?? selStart);
-                      const selected = selStart != null && idx >= s && idx <= e;
+                  {writeTokens.map((part, idx) => {
+                    if (part.type === 'sep') {
                       return (
-                        <Text
-                          key={`ww${idx}`}
-                          onPress={() => {
-                            if (!writeTokens[idx] || writeTokens[idx].type !== 'word') return;
-                            if (selStart === null) { setSelStart(idx); setSelEnd(idx); }
-                            else if (selStart !== null && selEnd !== null && selStart !== selEnd) { setSelStart(idx); setSelEnd(idx); }
-                            else { setSelEnd(idx); }
-                          }}
-                          style={[styles.studyWord, selected && styles.selectedWordWrite]}
-                        >
+                        <Text key={`ws${idx}`} style={styles.studySep}>
                           {part.label}
                         </Text>
                       );
-                    })}
-                  </Text>
+                    }
+                    const s = selStart == null ? -1 : Math.min(selStart, selEnd ?? selStart);
+                    const e = selStart == null ? -2 : Math.max(selStart, selEnd ?? selStart);
+                    const selected = selStart != null && idx >= s && idx <= e;
+                    return (
+                      <Pressable
+                        key={`ww${idx}`}
+                        style={styles.studyWordWrapper}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        onPress={() => {
+                          if (!writeTokens[idx] || writeTokens[idx].type !== 'word') return;
+                          if (selStart === null) { setSelStart(idx); setSelEnd(idx); }
+                          else if (selStart !== null && selEnd !== null && selStart !== selEnd) { setSelStart(idx); setSelEnd(idx); }
+                          else { setSelEnd(idx); }
+                        }}
+                      >
+                        <Text style={[styles.studyWord, selected && styles.selectedWordWrite]}>
+                          {part.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
                 {(() => {
                   if (selStart == null) return null;
@@ -855,7 +860,11 @@ function MainApp() {
             </ScrollView>
           ) : (
             screen === 'list' ? (
-              <ScrollView contentContainerStyle={styles.container}>
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={[styles.container, styles.scrollContainer]}
+                keyboardShouldPersistTaps="handled"
+              >
                 <Text style={styles.title}>Cümleler</Text>
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Ara</Text>
@@ -932,7 +941,11 @@ function MainApp() {
                 )}
               </ScrollView>
             ) : screen === 'words' ? (
-              <ScrollView contentContainerStyle={styles.container}>
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={[styles.container, styles.scrollContainer]}
+                keyboardShouldPersistTaps="handled"
+              >
                 <Text style={styles.title}>Kelimeler</Text>
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Ara</Text>
@@ -1171,6 +1184,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   flex: { flex: 1 },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
   container: {
     padding: 16,
     gap: 16,
@@ -1388,6 +1405,9 @@ const styles = StyleSheet.create({
   },
   studyWordWrapper: {
     marginRight: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   studyWord: {
     fontSize: 18,
