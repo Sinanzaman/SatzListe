@@ -1,0 +1,83 @@
+{
+  "tabs": {
+    "write": "Yazma",
+    "sentences": "Cümleler",
+    "words": "Kelimeler",
+    "study": "Çalışma",
+    "loading": "Veriler yükleniyor…"
+  },
+  "title": {
+    "write": "Yazma",
+    "edit": "Düzenle"
+  },
+  "label": {
+    "germanSentence": "Almanca cümle",
+    "turkishTranslation": "Türkçe çeviri",
+    "optionalNote": "Not (isteğe bağlı)",
+    "wordMeanings": "Kelime anlamları",
+    "turkish": "Türkçe",
+    "note": "Not",
+    "search": "Ara",
+    "wordMeaningFor": "\"{{word}}\" için anlam"
+  },
+  "placeholder": {
+    "german": "Örn: Ich lerne Deutsch.",
+    "turkish": "Örn: Ben Almanca öğreniyorum.",
+    "note": "Not...",
+    "search": "Ara",
+    "meaning": "Türkçe anlam...",
+    "searchWordMeaning": "Kelime veya anlam...",
+    "germanOrTurkish": "Almanca veya Türkçe..."
+  },
+  "empty": {
+    "noWordsInSentence": "Kelime bulunamadı. Cümle yazmayı deneyin.",
+    "noSentences": "Henüz kayıtlı cümle yok.",
+    "noWords": "Henüz kelime yok.",
+    "noStudySentence": "Çalışacak cümle bulunamadı. Önce cümle ekleyin."
+  },
+  "multi": {
+    "selectHeader": "Kelime grubu seçimi (çoklu kelime)",
+    "selection": "Seçim",
+    "selectionNone": "Seçim yapılmadı",
+    "currentMeaning": "Mevcut anlam",
+    "writeMeaning": "Türkçe anlamını yazın"
+  },
+  "actions": {
+    "clearSelection": "Seçimi Temizle",
+    "editSelectionMeaning": "Seçim için anlam ekle/düzenle",
+    "close": "Kapat",
+    "deleteMeaning": "Anlamı Sil",
+    "saveMeaning": "Anlamı Kaydet",
+    "cancel": "İptal",
+    "clear": "Temizle",
+    "update": "Güncelle",
+    "save": "Kaydet",
+    "edit": "Düzenle",
+    "delete": "Sil",
+    "nextSentence": "Başka Cümle"
+  },
+  "lesson": {
+    "label": "Ders {{n}}",
+    "lessons": "Dersler",
+    "range": "Cümleler {{start}}-{{end}} • {{count}} cümle",
+    "pick": "Ders Seç"
+  },
+  "toggle": {
+    "showSentence": "Cümleyi Göster",
+    "hideSentence": "Cümleyi Gizle",
+    "showTranslation": "Çeviriyi Göster",
+    "hideTranslation": "Çeviriyi Gizle",
+    "showNote": "Notu Göster",
+    "hideNote": "Notu Gizle"
+  },
+  "info": {
+    "sentenceHidden": "Cümle gizli. Dinlemek için hoparlöre basın."
+  },
+  "alerts": {
+    "deleteSentenceTitle": "Cümleyi sil",
+    "deleteSentenceBody": "Bu cümleyi silmek istediğinize emin misiniz? (Kelime anlamları korunacak)",
+    "deleteWordTitle": "Kelimeyi sil",
+    "deleteWordBody": "Bu kelimenin anlamını silmek istediğinize emin misiniz?",
+    "noteTitle": "Not"
+  }
+}

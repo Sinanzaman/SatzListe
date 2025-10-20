@@ -1,10 +1,10 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './i18n';
+import i18n from './i18n';
+import { useTranslation } from 'react-i18next';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// removed: import * as FileSystem from 'expo-file-system';
-// removed: import * as DocumentPicker from 'expo-document-picker';
-// removed: import * as Sharing from 'expo-sharing';
 import {
   StyleSheet,
   Text,
@@ -23,6 +23,8 @@ import { Animated, Easing } from 'react-native';
 import { Dimensions } from 'react-native';
 
 function MainApp() {
+  const { t } = useTranslation();
+  const [lang, setLang] = useState('tr');
   const [german, setGerman] = useState('');
   const [turkish, setTurkish] = useState('');
   const [selectedWord, setSelectedWord] = useState(null); // { key, label }
@@ -64,7 +66,6 @@ function MainApp() {
   const sentenceSlide = useRef(new Animated.Value(0)).current;
 
   // Cümleler ekranı alt sekmesi ve kelime düzenleme
-  const [listTab, setListTab] = useState('sentences'); // 'sentences' | 'words'
   const [editingWordKey, setEditingWordKey] = useState(null);
   const [editingWordMeaning, setEditingWordMeaning] = useState('');
 
@@ -178,9 +179,10 @@ function MainApp() {
   useEffect(() => {
     (async () => {
       try {
-        const [rawSentences, rawDict] = await Promise.all([
+        const [rawSentences, rawDict, storedLang] = await Promise.all([
           AsyncStorage.getItem(STORAGE_SENTENCES),
           AsyncStorage.getItem(STORAGE_DICT),
+          AsyncStorage.getItem('satzliste.lang'),
         ]);
         if (rawSentences) {
           try {
@@ -193,6 +195,10 @@ function MainApp() {
             const parsed = JSON.parse(rawDict);
             if (parsed && typeof parsed === 'object') setGlobalDict(parsed);
           } catch { }
+        }
+        if (storedLang) {
+          setLang(storedLang);
+          try { i18n.changeLanguage(storedLang); } catch { }
         }
       } finally {
         setHydrated(true);
@@ -224,6 +230,13 @@ function MainApp() {
     setEditingId(null);
     setNote('');
     setShowNote(false);
+  };
+
+  const toggleLanguage = async () => {
+    const next = lang === 'tr' ? 'en' : 'tr';
+    setLang(next);
+    try { i18n.changeLanguage(next); } catch { }
+    try { await AsyncStorage.setItem('satzliste.lang', next); } catch { }
   };
 
   // Metinden kelimeleri çıkar (benzersiz) ve görünen etiketi koru
@@ -411,38 +424,6 @@ function MainApp() {
     }
   };
 
-  // Yardımcı: verilen token dizisinde belirli bir 'word' başlangıcında en iyi (en uzun) ifade anlamını bul
-  const getBestPhraseAt = (tokens, startIdx, dict) => {
-    if (!tokens || !tokens[startIdx] || tokens[startIdx].type !== 'word') return null;
-    let best = null;
-    let currentIdx = startIdx;
-    const parts = [];
-    // En fazla 5 kelimeye kadar dene (performans/UX dengesi)
-    for (let len = 1; len <= 5; len++) {
-      const t = tokens[currentIdx];
-      if (!t || t.type !== 'word') break;
-      parts.push(t.label);
-      const label = parts.join(' ');
-      const key = label.toLocaleLowerCase('tr');
-      const meaning = dict[key];
-      if (meaning) {
-        best = { label, key, meaning, start: startIdx, end: currentIdx };
-      }
-      // sonraki kelimeye atla (word -> sep -> word)
-      if (
-        tokens[currentIdx + 1] &&
-        tokens[currentIdx + 2] &&
-        tokens[currentIdx + 1].type === 'sep' &&
-        tokens[currentIdx + 2].type === 'word'
-      ) {
-        currentIdx = currentIdx + 2;
-      } else {
-        break;
-      }
-    }
-    return best;
-  };
-
   // Yardımcı: belirli bir kelime pozisyonunu kapsayan tüm anlamları (tekli ve ifadeler) döndür
   const getMeaningsCovering = (tokens, pos, dict, maxLen = 5) => {
     const results = [];
@@ -540,119 +521,6 @@ function MainApp() {
     cancelEditWord();
   };
 
-  /*
-  const parseImported = (text) => {
-    try {
-      const obj = JSON.parse(text);
-      const sentencesIn = obj.sentences || obj.Sentences || [];
-      const dictIn = obj.dict || obj.words || obj.dictionary || {};
-      if (!Array.isArray(sentencesIn) || typeof dictIn !== 'object' || dictIn === null) {
-        return null;
-      }
-      return { sentences: sentencesIn, dict: dictIn };
-    } catch {
-      return null;
-    }
-  };
-
-  const exportToFile = async () => {
-    try {
-      const filename = `satzliste-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      const path = `${FileSystem.cacheDirectory}${filename}`;
-      await FileSystem.writeAsStringAsync(path, exportJson, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        try {
-          // Bazı cihazlarda mime/UTI verilince hata oluşabiliyor; sade çağrı daha stabil
-          await Sharing.shareAsync(path);
-          return;
-        } catch (e) {
-          // Android için SAF ile yedekleme dene
-          if (Platform.OS === 'android') {
-            const ok = await exportToFileAndroidSaf(filename, exportJson);
-            if (ok) return;
-          }
-          throw e;
-        }
-      }
-      // Paylaşım yoksa veya başarısızsa: Android SAF dene, değilse yol bilgisini ver
-      if (Platform.OS === 'android') {
-        const ok = await exportToFileAndroidSaf(filename, exportJson);
-        if (ok) return;
-      }
-      Alert.alert('Hazırlandı', `Paylaşım kullanılamıyor. Dosya geçici klasöre yazıldı:\n${path}`);
-    } catch (e) {
-      Alert.alert('Hata', 'Dosyaya kaydetme/paylaşma sırasında sorun oluştu.');
-    }
-  };
-
-  async function exportToFileAndroidSaf(filename, contents) {
-    try {
-      const perms = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-      if (!perms.granted) return false;
-      const dirUri = perms.directoryUri;
-      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-        dirUri,
-        filename,
-        'application/json'
-      );
-      await FileSystem.writeAsStringAsync(fileUri, contents, { encoding: FileSystem.EncodingType.UTF8 });
-      Alert.alert('Kaydedildi', 'JSON dosyası seçtiğiniz klasöre kaydedildi.');
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  const importFromFile = async () => {
-    try {
-      const res = await DocumentPicker.getDocumentAsync({ type: 'application/json', multiple: false, copyToCacheDirectory: true });
-      // New API returns {assets, canceled}
-      if (res.canceled) return;
-      const asset = res.assets && res.assets[0] ? res.assets[0] : res;
-      if (!asset || !asset.uri) return;
-      const content = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
-      const data = parseImported(content);
-      if (!data) {
-        Alert.alert('Geçersiz veri', 'JSON formatı veya veri yapısı hatalı.');
-        return;
-      }
-      Alert.alert('İçe Aktarma', 'Bu verileri mevcut verilerle nasıl uygulayalım?', [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Birleştir',
-          onPress: () => {
-            // merge
-            setSentences((prev) => {
-              const byId = new Set(prev.map((s) => s.id));
-              const merged = [...prev];
-              (data.sentences || []).forEach((s) => {
-                if (s && typeof s === 'object' && s.id && !byId.has(s.id)) merged.push(s);
-              });
-              return merged;
-            });
-            setGlobalDict((prev) => ({ ...(data.dict || {}), ...prev }));
-            Alert.alert('Tamamlandı', 'Veriler birleştirildi.');
-          },
-        },
-        {
-          text: 'Yerine Yaz',
-          style: 'destructive',
-          onPress: () => {
-            setSentences(Array.isArray(data.sentences) ? data.sentences : []);
-            setGlobalDict(data.dict && typeof data.dict === 'object' ? data.dict : {});
-            Alert.alert('Tamamlandı', 'Veriler değiştirildi.');
-          },
-        },
-      ]);
-    } catch (e) {
-      Alert.alert('Hata', 'Dosya alınamadı veya okunamadı.');
-    }
-  };
-  */
-
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar style="auto" />
@@ -664,22 +532,22 @@ function MainApp() {
           {/* Basit üst bar: ekranlar arası geçiş */}
           <View style={styles.topBar}>
             <Pressable onPress={() => setScreen('write')} style={[styles.tab, screen === 'write' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'write' && styles.tabTextActive]}>Yazma</Text>
+              <Text style={[styles.tabText, screen === 'write' && styles.tabTextActive]}>{t('tabs.write')}</Text>
             </Pressable>
             <Pressable onPress={() => setScreen('list')} style={[styles.tab, screen === 'list' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'list' && styles.tabTextActive]}>Cümleler</Text>
+              <Text style={[styles.tabText, screen === 'list' && styles.tabTextActive]}>{t('tabs.sentences')}</Text>
             </Pressable>
             <Pressable onPress={() => setScreen('words')} style={[styles.tab, screen === 'words' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'words' && styles.tabTextActive]}>Kelimeler</Text>
+              <Text style={[styles.tabText, screen === 'words' && styles.tabTextActive]}>{t('tabs.words')}</Text>
             </Pressable>
             <Pressable onPress={() => setScreen('study')} style={[styles.tab, screen === 'study' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'study' && styles.tabTextActive]}>Çalışma</Text>
+              <Text style={[styles.tabText, screen === 'study' && styles.tabTextActive]}>{t('tabs.study')}</Text>
             </Pressable>
           </View>
 
           {!hydrated ? (
             <View style={[styles.container]}>
-              <Text style={styles.muted}>Veriler yükleniyor…</Text>
+              <Text style={styles.muted}>{t('tabs.loading')}</Text>
             </View>
           ) : screen === 'write' ? (
             <ScrollView
@@ -687,13 +555,13 @@ function MainApp() {
               contentContainerStyle={[styles.container, styles.scrollContainer]}
               keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.title}>{editingId ? 'Düzenle' : 'Yazma'}</Text>
+              <Text style={styles.title}>{editingId ? t('title.edit') : t('title.write')}</Text>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Almanca cümle</Text>
+                <Text style={styles.label}>{t('label.germanSentence')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Örn: Ich lerne Deutsch."
+                  placeholder={t('placeholder.german')}
                   value={german}
                   onChangeText={setGerman}
                   autoCapitalize="sentences"
@@ -704,10 +572,10 @@ function MainApp() {
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Türkçe çeviri</Text>
+                <Text style={styles.label}>{t('label.turkishTranslation')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Örn: Ben Almanca öğreniyorum."
+                  placeholder={t('placeholder.turkish')}
                   value={turkish}
                   onChangeText={setTurkish}
                   autoCapitalize="sentences"
@@ -718,10 +586,10 @@ function MainApp() {
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Not (isteğe bağlı)</Text>
+                <Text style={styles.label}>{t('label.optionalNote')}</Text>
                 <TextInput
                   style={[styles.input]}
-                  placeholder="Not..."
+                  placeholder={t('placeholder.note')}
                   value={note}
                   onChangeText={setNote}
                   autoCorrect={false}
@@ -731,10 +599,10 @@ function MainApp() {
               </View>
               {/* Kelime çipleri */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Kelime anlamları</Text>
+                <Text style={styles.label}>{t('label.wordMeanings')}</Text>
                 <View style={styles.wordWrap}>
                   {words.length === 0 ? (
-                    <Text style={styles.muted}>Kelime bulunamadı. Cümle yazmayı deneyin.</Text>
+                    <Text style={styles.muted}>{t('empty.noWordsInSentence')}</Text>
                   ) : (
                     words.map((w) => {
                       const m = meaningFor(w.key);
@@ -751,7 +619,7 @@ function MainApp() {
 
               {/* Çoklu kelime seçimi (ifade) */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Kelime grubu seçimi (çoklu kelime)</Text>
+                <Text style={styles.label}>{t('multi.selectHeader')}</Text>
                 <View style={styles.studySentenceContainer}>
                   {writeTokens.map((part, idx) => {
                     if (part.type === 'sep') {
@@ -797,13 +665,13 @@ function MainApp() {
                   const currentMeaning = meaningFor(phraseKey);
                   return (
                     <View style={{ gap: 8 }}>
-                      <Text style={styles.muted}>{phraseLabel ? `Seçim: ${phraseLabel}` : 'Seçim yapılmadı'}</Text>
+                      <Text style={styles.muted}>{phraseLabel ? `${t('multi.selection')}: ${phraseLabel}` : t('multi.selectionNone')}</Text>
                       {!!currentMeaning && (
-                        <Text style={styles.muted}>{`Mevcut anlam: ${currentMeaning}`}</Text>
+                        <Text style={styles.muted}>{`${t('multi.currentMeaning')}: ${currentMeaning}`}</Text>
                       )}
                       <View style={styles.actions}>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => { setSelStart(null); setSelEnd(null); }}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>Seçimi Temizle</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.clearSelection')}</Text>
                         </Pressable>
                         {phraseLabel ? (
                           <Pressable
@@ -812,7 +680,7 @@ function MainApp() {
                               openWordEditor({ key: phraseKey, label: phraseLabel });
                             }}
                           >
-                            <Text style={[styles.buttonText, styles.primaryText]}>Seçim için anlam ekle/düzenle</Text>
+                            <Text style={[styles.buttonText, styles.primaryText]}>{t('actions.editSelectionMeaning')}</Text>
                           </Pressable>
                         ) : null}
                       </View>
@@ -825,11 +693,11 @@ function MainApp() {
               {selectedWord && (
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>
-                    "{selectedWord.label}" kelimesi için anlam
+                    "{selectedWord.label}" {t('multi.currentMeaning')}
                   </Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Türkçe anlamını yazın"
+                    placeholder={t('multi.writeMeaning')}
                     value={selectedMeaning}
                     onChangeText={setSelectedMeaning}
                     autoCapitalize="sentences"
@@ -837,13 +705,13 @@ function MainApp() {
                   />
                   <View style={styles.actions}>
                     <Pressable style={[styles.button, styles.secondary]} onPress={() => { setSelectedWord(null); setSelectedMeaning(''); }}>
-                      <Text style={[styles.buttonText, styles.secondaryText]}>Kapat</Text>
+                      <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.close')}</Text>
                     </Pressable>
                     <Pressable style={[styles.button, styles.danger]} onPress={deleteSelectedMeaning}>
-                      <Text style={[styles.buttonText, styles.dangerText]}>Anlamı Sil</Text>
+                      <Text style={[styles.buttonText, styles.dangerText]}>{t('actions.deleteMeaning')}</Text>
                     </Pressable>
                     <Pressable style={[styles.button, styles.primary]} onPress={saveSelectedMeaning}>
-                      <Text style={[styles.buttonText, styles.primaryText]}>Anlamı Kaydet</Text>
+                      <Text style={[styles.buttonText, styles.primaryText]}>{t('actions.saveMeaning')}</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -851,10 +719,10 @@ function MainApp() {
 
               <View style={styles.actions}>
                 <Pressable style={[styles.button, styles.secondary]} onPress={handleClear}>
-                  <Text style={[styles.buttonText, styles.secondaryText]}>{editingId ? 'İptal' : 'Temizle'}</Text>
+                  <Text style={[styles.buttonText, styles.secondaryText]}>{editingId ? t('actions.cancel') : t('actions.clear')}</Text>
                 </Pressable>
                 <Pressable disabled={!canSave} style={[styles.button, canSave ? styles.primary : styles.disabled]} onPress={handleSaveSentence}>
-                  <Text style={[styles.buttonText, canSave ? styles.primaryText : styles.disabledText]}>{editingId ? 'Güncelle' : 'Kaydet'}</Text>
+                  <Text style={[styles.buttonText, canSave ? styles.primaryText : styles.disabledText]}>{editingId ? t('actions.update') : t('actions.save')}</Text>
                 </Pressable>
               </View>
             </ScrollView>
@@ -865,12 +733,12 @@ function MainApp() {
                 contentContainerStyle={[styles.container, styles.scrollContainer]}
                 keyboardShouldPersistTaps="handled"
               >
-                <Text style={styles.title}>Cümleler</Text>
+                <Text style={styles.title}>{t('tabs.sentences')}</Text>
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Ara</Text>
+                  <Text style={styles.label}>{t('label.search')}</Text>
                   <TextInput
                     style={[styles.input, styles.inputSingle]}
-                    placeholder="Almanca veya Türkçe..."
+                    placeholder={t('placeholder.germanOrTurkish')}
                     value={search}
                     onChangeText={setSearch}
                     autoCorrect={false}
@@ -879,12 +747,23 @@ function MainApp() {
                 </View>
 
                 {(search ? filteredSentences : sentences).length === 0 ? (
-                  <Text style={styles.muted}>Henüz kayıtlı cümle yok.</Text>
+                  <Text style={styles.muted}>{t('empty.noSentences')}</Text>
                 ) : (
                   (search ? filteredSentences : sentences).map((s) => (
                     <View key={s.id} style={styles.card}>
                       <Text style={styles.cardGerman}>{s.german}</Text>
-                      {(() => { const idx = idToIndex.get(s.id); if (typeof idx === 'number' && idx >= 0) { const lesson = Math.floor(idx / 10) + 1; return (<Text style={styles.muted}>{'Ders ' + lesson}</Text>); } return null; })()}
+                      {(() => {
+                        const idx = idToIndex.get(s.id);
+                        if (typeof idx === 'number' && idx >= 0) {
+                          const lesson = Math.floor(idx / 10) + 1;
+                          return (
+                            <Text style={styles.muted}>
+                              {t('lesson.label', { n: lesson })}
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
                       <Text style={styles.cardTurkish}>{s.turkish}</Text>
                       <Pressable style={styles.speakerFloating} onPress={() => speakSentence(s.german)}>
                         <Text style={styles.iconTextSmall}>🔊</Text>
@@ -894,8 +773,8 @@ function MainApp() {
                           <Pressable
                             style={styles.iconButtonSmall}
                             onPress={() => {
-                              const t = String(s.note || '').trim();
-                              if (t) Alert.alert('Not', t);
+                              const noteText = String(s.note || '').trim();
+                              if (noteText) Alert.alert(t('alerts.noteTitle'), noteText);
                             }}
                           >
                             <Text style={styles.iconTextSmall}>📝</Text>
@@ -914,18 +793,18 @@ function MainApp() {
                             setScreen('write');
                           }}
                         >
-                          <Text style={[styles.buttonText, styles.secondaryText]}>Düzenle</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.edit')}</Text>
                         </Pressable>
                         <Pressable
                           style={[styles.button, styles.danger]}
                           onPress={() => {
                             Alert.alert(
-                              'Cümleyi sil',
-                              'Bu cümleyi silmek istediğinize emin misiniz? (Kelime anlamları korunacak)',
+                              t('alerts.deleteSentenceTitle'),
+                              t('alerts.deleteSentenceBody'),
                               [
-                                { text: 'Vazgeç', style: 'cancel' },
+                                { text: t('actions.cancel'), style: 'cancel' },
                                 {
-                                  text: 'Sil',
+                                  text: t('actions.delete'),
                                   style: 'destructive',
                                   onPress: () => setSentences((prev) => prev.filter((it) => it.id !== s.id)),
                                 },
@@ -933,7 +812,7 @@ function MainApp() {
                             );
                           }}
                         >
-                          <Text style={[styles.buttonText, styles.dangerText]}>Sil</Text>
+                          <Text style={[styles.buttonText, styles.dangerText]}>{t('actions.delete')}</Text>
                         </Pressable>
                       </View>
                     </View>
@@ -946,12 +825,12 @@ function MainApp() {
                 contentContainerStyle={[styles.container, styles.scrollContainer]}
                 keyboardShouldPersistTaps="handled"
               >
-                <Text style={styles.title}>Kelimeler</Text>
+                <Text style={styles.title}>{t('tabs.words')}</Text>
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Ara</Text>
+                  <Text style={styles.label}>{t('label.search')}</Text>
                   <TextInput
                     style={[styles.input, styles.inputSingle]}
-                    placeholder="Kelime veya anlam..."
+                    placeholder={t('placeholder.searchWordMeaning')}
                     value={search}
                     onChangeText={setSearch}
                     autoCorrect={false}
@@ -960,7 +839,7 @@ function MainApp() {
                 </View>
 
                 {filteredWordsAll.length === 0 ? (
-                  <Text style={styles.muted}>Henüz kelime yok.</Text>
+                  <Text style={styles.muted}>{t('empty.noWords')}</Text>
                 ) : (
                   filteredWordsAll.map((w) => (
                     <View key={w.key} style={styles.card}>
@@ -977,16 +856,16 @@ function MainApp() {
                           style={[styles.button, styles.danger]}
                           onPress={() => {
                             Alert.alert(
-                              'Kelimeyi sil',
-                              'Bu kelimenin anlamını silmek istediğinize emin misiniz?',
+                              t('alerts.deleteWordTitle'),
+                              t('alerts.deleteWordBody'),
                               [
-                                { text: 'Vazgeç', style: 'cancel' },
-                                { text: 'Sil', style: 'destructive', onPress: () => deleteWordGlobal(w.key) },
+                                { text: t('actions.cancel'), style: 'cancel' },
+                                { text: t('actions.delete'), style: 'destructive', onPress: () => deleteWordGlobal(w.key) },
                               ]
                             );
                           }}
                         >
-                          <Text style={[styles.buttonText, styles.dangerText]}>Sil</Text>
+                          <Text style={[styles.buttonText, styles.dangerText]}>{t('actions.delete')}</Text>
                         </Pressable>
                       </View>
                     </View>
@@ -995,23 +874,23 @@ function MainApp() {
 
                 {editingWordKey && (
                   <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>{`"${editingWordKey}" için anlam`}</Text>
+                    <Text style={styles.label}>{t('label.wordMeaningFor', { word: editingWordKey })}</Text>
                     <TextInput
                       style={[styles.input, styles.inputSingle]}
-                      placeholder="Türkçe anlam..."
+                      placeholder={t('placeholder.meaning')}
                       value={editingWordMeaning}
                       onChangeText={setEditingWordMeaning}
                       autoCorrect={false}
                     />
                     <View style={styles.actions}>
                       <Pressable style={[styles.button, styles.secondary]} onPress={cancelEditWord}>
-                        <Text style={[styles.buttonText, styles.secondaryText]}>Kapat</Text>
+                        <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.close')}</Text>
                       </Pressable>
                       <Pressable style={[styles.button, styles.danger]} onPress={() => deleteWordGlobal(editingWordKey)}>
-                        <Text style={[styles.buttonText, styles.dangerText]}>Sil</Text>
+                        <Text style={[styles.buttonText, styles.dangerText]}>{t('actions.delete')}</Text>
                       </Pressable>
                       <Pressable style={[styles.button, styles.primary]} onPress={saveEditWord}>
-                        <Text style={[styles.buttonText, styles.primaryText]}>Kaydet</Text>
+                        <Text style={[styles.buttonText, styles.primaryText]}>{t('actions.save')}</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -1021,11 +900,11 @@ function MainApp() {
               // study
               <View style={styles.container}>
                 {lessons.length === 0 ? (
-                  <Text style={styles.muted}>Çalışacak cümle bulunamadı. Önce cümle ekleyin.</Text>
+                  <Text style={styles.muted}>{t('empty.noStudySentence')}</Text>
                 ) : (
                   studyLessonIndex === null ? (
                     <View>
-                      <Text style={styles.title}>Dersler</Text>
+                      <Text style={styles.title}>{t('lesson.lessons')}</Text>
                       <FlatList
                         data={lessons}
                         keyExtractor={(item, index) => `lesson-${index}`}
@@ -1034,8 +913,14 @@ function MainApp() {
                             setStudyLessonIndex(index); setShowTranslation(false); setShowSentence(false);
                             setShowNote(false);
                           }}>
-                            <Text style={styles.cardGerman}>{`Ders ${index + 1}`}</Text>
-                            <Text style={styles.cardTurkish}>{`Cümleler ${index * 10 + 1}-${index * 10 + item.length} • ${item.length} cümle`}</Text>
+                            <Text style={styles.cardGerman}>{t('lesson.label', { n: index + 1 })}</Text>
+                            <Text style={styles.cardTurkish}>
+                              {t('lesson.range', {
+                                start: index * 10 + 1,
+                                end: index * 10 + item.length,
+                                count: item.length
+                              })}
+                            </Text>
                           </Pressable>
                         )}
                         contentContainerStyle={{ gap: 12 }}
@@ -1044,12 +929,14 @@ function MainApp() {
                   ) : (
                     <View style={{ gap: 12 }}>
                       <View style={[styles.studyToolbar, { flexDirection: 'row' }]}>
-                        <Text style={[styles.title, { flex: 1 }]}>{`Ders ${(studyLessonIndex ?? 0) + 1}`}</Text>
+                        <Text style={[styles.title, { flex: 1 }]}>
+                          {t('lesson.label', { n: (studyLessonIndex ?? 0) + 1 })}
+                        </Text>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => {
                           setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
                           setShowNote(false); setShowTranslation(false); setStudyOrder([]); setStudyPos(0); setStudyIndex(null);
                         }}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>Ders Seç</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{t('lesson.pick')}</Text>
                         </Pressable>
                       </View>
                       <View style={styles.studyToolbar}>
@@ -1057,7 +944,7 @@ function MainApp() {
                           <Text style={styles.iconText}>🔊</Text>
                         </Pressable>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowSentence((v) => !v)}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>{showSentence ? 'Cümleyi Gizle' : 'Cümleyi Göster'}</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{showSentence ? t('toggle.hideSentence') : t('toggle.showSentence')}</Text>
                         </Pressable>
                       </View>
                       <Animated.View style={[
@@ -1138,19 +1025,19 @@ function MainApp() {
                             )}
                           </View>
                         ) : (
-                          <Text style={styles.muted}>Cümle gizli. Dinlemek için hoparlöre basın.</Text>
+                          <Text style={styles.muted}>{t('info.sentenceHidden')}</Text>
                         )}
                       </Animated.View>
                       {showTranslation && (
                         <View style={styles.translationBox}>
-                          <Text style={styles.translationLabel}>Türkçe</Text>
+                          <Text style={styles.translationLabel}>{t('label.turkish')}</Text>
                           <Text style={styles.translationText}>{lessons[studyLessonIndex][studyIndex]?.turkish}</Text>
                         </View>
                       )}
-                      {(() => { const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null; const noteText = (cs && cs.note) ? String(cs.note).trim() : ''; if (!showNote || !noteText) return null; return (<View style={styles.translationBox}><Text style={styles.translationLabel}>Not</Text><Text style={styles.translationText}>{noteText}</Text></View>); })()}
+                      {(() => { const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null; const noteText = (cs && cs.note) ? String(cs.note).trim() : ''; if (!showNote || !noteText) return null; return (<View style={styles.translationBox}><Text style={styles.translationLabel}>{t('label.note')}</Text><Text style={styles.translationText}>{noteText}</Text></View>); })()}
                       <View style={styles.actionsCentered}>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowTranslation((v) => !v)}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? 'Çeviriyi Gizle' : 'Çeviriyi Göster'}</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? t('toggle.hideTranslation') : t('toggle.showTranslation')}</Text>
                         </Pressable>
                         {(() => {
                           const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null;
@@ -1158,12 +1045,12 @@ function MainApp() {
                           if (!noteText) return null;
                           return (
                             <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowNote(v => !v)}>
-                              <Text style={[styles.buttonText, styles.secondaryText]}>{showNote ? "Notu Gizle" : "Notu Göster"}</Text>
+                              <Text style={[styles.buttonText, styles.secondaryText]}>{showNote ? t('toggle.hideNote') : t('toggle.showNote')}</Text>
                             </Pressable>
                           );
                         })()}
                         <Pressable style={[styles.button, styles.primary]} onPress={refreshStudy}>
-                          <Text style={[styles.buttonText, styles.primaryText]}>Başka Cümle</Text>
+                          <Text style={[styles.buttonText, styles.primaryText]}>{t('actions.nextSentence')}</Text>
                         </Pressable>
                       </View>
                     </View>
@@ -1173,6 +1060,9 @@ function MainApp() {
             )
           )}
         </Animated.View>
+        <Pressable onPress={toggleLanguage} style={styles.langFloating} accessibilityRole="button" accessibilityLabel="Toggle Language">
+          <Text style={styles.langToggleText}>{(lang || 'tr').toUpperCase()}</Text>
+        </Pressable>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1282,6 +1172,21 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#111',
     fontWeight: '600',
+  },
+  langFloating: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#111',
+  },
+  langToggleText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   wordWrap: {
     flexDirection: 'row',

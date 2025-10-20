@@ -1,0 +1,83 @@
+{
+  "tabs": {
+    "write": "Write",
+    "sentences": "Sentences",
+    "words": "Words",
+    "study": "Study",
+    "loading": "Loading data…"
+  },
+  "title": {
+    "write": "Write",
+    "edit": "Edit"
+  },
+  "label": {
+    "germanSentence": "German sentence",
+    "turkishTranslation": "Turkish translation",
+    "optionalNote": "Optional note",
+    "wordMeanings": "Word meanings",
+    "turkish": "Turkish",
+    "note": "Note",
+    "search": "Search",
+    "wordMeaningFor": "\"{{word}}\" meaning"
+  },
+  "placeholder": {
+    "german": "Ex: Ich lerne Deutsch.",
+    "turkish": "Ex: I am learning German.",
+    "note": "Note...",
+    "search": "Search",
+    "meaning": "Enter Turkish meaning...",
+    "searchWordMeaning": "Word or meaning...",
+    "germanOrTurkish": "German or Turkish..."
+  },
+  "empty": {
+    "noWordsInSentence": "No words found. Try writing a sentence.",
+    "noSentences": "No sentences saved yet.",
+    "noWords": "No words available yet.",
+    "noStudySentence": "No sentences to study. Please add some first."
+  },
+  "multi": {
+    "selectHeader": "Word group selection (multi-word phrases)",
+    "selection": "Selection",
+    "selectionNone": "No selection",
+    "currentMeaning": "Current meaning",
+    "writeMeaning": "Enter Turkish meaning"
+  },
+  "actions": {
+    "clearSelection": "Clear Selection",
+    "editSelectionMeaning": "Add/Edit meaning for selection",
+    "close": "Close",
+    "deleteMeaning": "Delete Meaning",
+    "saveMeaning": "Save Meaning",
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "update": "Update",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "nextSentence": "Next Sentence"
+  },
+  "lesson": {
+    "label": "Lesson {{n}}",
+    "lessons": "Lessons",
+    "range": "Sentences {{start}}–{{end}} • {{count}} sentences",
+    "pick": "Select Lesson"
+  },
+  "toggle": {
+    "showSentence": "Show Sentence",
+    "hideSentence": "Hide Sentence",
+    "showTranslation": "Show Translation",
+    "hideTranslation": "Hide Translation",
+    "showNote": "Show Note",
+    "hideNote": "Hide Note"
+  },
+  "info": {
+    "sentenceHidden": "Sentence is hidden. Tap the speaker to listen."
+  },
+  "alerts": {
+    "deleteSentenceTitle": "Delete sentence",
+    "deleteSentenceBody": "Are you sure you want to delete this sentence? (Word meanings will be preserved)",
+    "deleteWordTitle": "Delete word",
+    "deleteWordBody": "Are you sure you want to delete this word’s meaning?",
+    "noteTitle": "Note"
+  }
+}
