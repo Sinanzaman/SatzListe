@@ -18,7 +18,10 @@
     "turkish": "Turkish",
     "note": "Note",
     "search": "Search",
-    "wordMeaningFor": "\"{{word}}\" meaning"
+    "wordMeaningFor": "\"{{word}}\" meaning",
+    "languageSelection": "Language",
+    "chooseLanguage": "Choose language",
+    "english": "English"
   },
   "placeholder": {
     "german": "Ex: Ich lerne Deutsch.",

@@ -133,7 +133,7 @@ function MainApp() {
   };
 
   // Ekranlar arası yatay kaydırma ile geçiş
-  const screenOrder = ['write', 'list', 'words', 'study'];
+  const screenOrder = ['write', 'list', 'words', 'study', 'lang'];
   const currentIndex = screenOrder.indexOf(screen);
   const panResponder = useMemo(
     () =>
@@ -234,6 +234,13 @@ function MainApp() {
 
   const toggleLanguage = async () => {
     const next = lang === 'tr' ? 'en' : 'tr';
+    setLang(next);
+    try { i18n.changeLanguage(next); } catch { }
+    try { await AsyncStorage.setItem('satzliste.lang', next); } catch { }
+  };
+
+  const changeLanguage = async (code) => {
+    const next = code === 'en' ? 'en' : 'tr';
     setLang(next);
     try { i18n.changeLanguage(next); } catch { }
     try { await AsyncStorage.setItem('satzliste.lang', next); } catch { }
@@ -522,29 +529,13 @@ function MainApp() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StatusBar style="auto" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.select({ ios: 'padding', android: 'height' })}
       >
         <Animated.View style={[styles.flex, { transform: [{ translateX: screenShift }] }]} {...panResponder.panHandlers}>
-          {/* Basit üst bar: ekranlar arası geçiş */}
-          <View style={styles.topBar}>
-            <Pressable onPress={() => setScreen('write')} style={[styles.tab, screen === 'write' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'write' && styles.tabTextActive]}>{t('tabs.write')}</Text>
-            </Pressable>
-            <Pressable onPress={() => setScreen('list')} style={[styles.tab, screen === 'list' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'list' && styles.tabTextActive]}>{t('tabs.sentences')}</Text>
-            </Pressable>
-            <Pressable onPress={() => setScreen('words')} style={[styles.tab, screen === 'words' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'words' && styles.tabTextActive]}>{t('tabs.words')}</Text>
-            </Pressable>
-            <Pressable onPress={() => setScreen('study')} style={[styles.tab, screen === 'study' && styles.tabActive]}>
-              <Text style={[styles.tabText, screen === 'study' && styles.tabTextActive]}>{t('tabs.study')}</Text>
-            </Pressable>
-          </View>
-
           {!hydrated ? (
             <View style={[styles.container]}>
               <Text style={styles.muted}>{t('tabs.loading')}</Text>
@@ -896,6 +887,47 @@ function MainApp() {
                   </View>
                 )}
               </ScrollView>
+            ) : screen === 'lang' ? (
+              <ScrollView
+                style={styles.flex}
+                contentContainerStyle={[styles.container, styles.scrollContainer]}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={styles.title}>{t("label.languageSelection")}</Text>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>{t("label.chooseLanguage")}</Text>
+                  <View style={{ flexDirection: "row", gap: 12 }}>
+                    <Pressable
+                      style={[styles.button, lang === "tr" ? styles.primary : styles.secondary]}
+                      onPress={() => changeLanguage("tr")}
+                    >
+                      <Text
+                        style={[
+                          styles.buttonText,
+                          lang === "tr" ? styles.primaryText : styles.secondaryText,
+                        ]}
+                      >
+                        {t("label.turkish")}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[styles.button, lang === "en" ? styles.primary : styles.secondary]}
+                      onPress={() => changeLanguage("en")}
+                    >
+                      <Text
+                        style={[
+                          styles.buttonText,
+                          lang === "en" ? styles.primaryText : styles.secondaryText,
+                        ]}
+                      >
+                        {t("label.english")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </ScrollView>
             ) : (
               // study
               <View style={styles.container}>
@@ -1060,9 +1092,24 @@ function MainApp() {
             )
           )}
         </Animated.View>
-        <Pressable onPress={toggleLanguage} style={styles.langFloating} accessibilityRole="button" accessibilityLabel="Toggle Language">
-          <Text style={styles.langToggleText}>{(lang || 'tr').toUpperCase()}</Text>
-        </Pressable>
+        {/* Alt bar: ekranlar arası geçiş */}
+        <View style={styles.bottomBar}>
+          <Pressable onPress={() => setScreen('write')} style={[styles.tab, screen === 'write' && styles.tabActive]}>
+            <Text style={[styles.tabText, screen === 'write' && styles.tabTextActive]}>{t('tabs.write')}</Text>
+          </Pressable>
+          <Pressable onPress={() => setScreen('list')} style={[styles.tab, screen === 'list' && styles.tabActive]}>
+            <Text style={[styles.tabText, screen === 'list' && styles.tabTextActive]}>{t('tabs.sentences')}</Text>
+          </Pressable>
+          <Pressable onPress={() => setScreen('words')} style={[styles.tab, screen === 'words' && styles.tabActive]}>
+            <Text style={[styles.tabText, screen === 'words' && styles.tabTextActive]}>{t('tabs.words')}</Text>
+          </Pressable>
+          <Pressable onPress={() => setScreen('study')} style={[styles.tab, screen === 'study' && styles.tabActive]}>
+            <Text style={[styles.tabText, screen === 'study' && styles.tabTextActive]}>{t('tabs.study')}</Text>
+          </Pressable>
+          <Pressable onPress={() => setScreen('lang')} style={[styles.tab, screen === 'lang' && styles.tabActive]}>
+            <Text style={[styles.tabText, screen === 'lang' && styles.tabTextActive]}>{lang === 'tr' ? 'Dil' : 'Language'}</Text>
+          </Pressable>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1076,7 +1123,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scrollContainer: {
     flexGrow: 1,
-    paddingBottom: 24,
+    paddingBottom: 30,
   },
   container: {
     padding: 16,
@@ -1151,10 +1198,11 @@ const styles = StyleSheet.create({
   dangerText: {
     color: '#fff',
   },
-  topBar: {
+  bottomBar: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
   },
   tab: {
     flex: 1,
@@ -1172,21 +1220,6 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#111',
     fontWeight: '600',
-  },
-  langFloating: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#111',
-  },
-  langToggleText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
   },
   wordWrap: {
     flexDirection: 'row',

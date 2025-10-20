@@ -18,7 +18,10 @@
     "turkish": "Türkçe",
     "note": "Not",
     "search": "Ara",
-    "wordMeaningFor": "\"{{word}}\" için anlam"
+    "wordMeaningFor": "\"{{word}}\" için anlam",
+    "languageSelection": "Dil Seçimi",
+    "chooseLanguage": "Dil seçin",
+    "english": "İngilizce"
   },
   "placeholder": {
     "german": "Örn: Ich lerne Deutsch.",
