@@ -67,7 +67,9 @@
     "label": "Lesson {{n}}",
     "lessons": "Lessons",
     "range": "Sentences {{start}}–{{end}} · {{count}} sentences",
-    "pick": "Select Lesson"
+    "pick": "Select Lesson",
+    "all": "All Sentences",
+    "allCount": "{{count}} sentences"
   },
   "toggle": {
     "showSentence": "Show Sentence",

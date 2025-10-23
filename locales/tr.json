@@ -66,8 +66,10 @@
   "lesson": {
     "label": "Ders {{n}}",
     "lessons": "Dersler",
-    "range": "Cümleler {{start}}–{{end}} · {{count}} cümle",
-    "pick": "Ders Seç"
+    "range": "Cümleler {{start}}–{{end}} • {{count}} cümle",
+    "pick": "Ders Seç",
+    "all": "Tüm cümleler",
+    "allCount": "{{count}} cümle"
   },
   "toggle": {
     "showSentence": "Cümleyi Göster",

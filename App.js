@@ -45,7 +45,7 @@ function MainApp() {
   // Basit ekran yöneticisi (navigation bağımlılığı olmadan)
   const [screen, setScreen] = useState('write'); // 'write' | 'list' | 'study'
   const [studyIndex, setStudyIndex] = useState(null);
-  const [studyLessonIndex, setStudyLessonIndex] = useState(null); // null: ders listesi; sayı: seçili ders
+  const [studyLessonIndex, setStudyLessonIndex] = useState(null); // null: ders listesi; sayı: seçili ders; -1: tümü
   const [note, setNote] = useState('');
   const [showNote, setShowNote] = useState(false);
   const [studyOrder, setStudyOrder] = useState([]); // mevcut ders icin karistirilmis indeksler
@@ -132,6 +132,13 @@ function MainApp() {
     }
     return out;
   }, [sentences]);
+
+  // Çalışma listesi: seçili ders ya da tüm cümleler
+  const currentStudyList = useMemo(() => {
+    if (studyLessonIndex === -1) return sentences || [];
+    if (studyLessonIndex !== null) return lessons[studyLessonIndex] || [];
+    return [];
+  }, [studyLessonIndex, sentences, lessons]);
 
   // Hızlı erişim için id -> index haritası
   const idToIndex = useMemo(() => {
@@ -447,7 +454,7 @@ function MainApp() {
       setShowSentence(false);
       setShowNote(false);
       if (studyLessonIndex !== null) {
-        const current = lessons[studyLessonIndex] || [];
+        const current = currentStudyList;
         if (current.length > 0) {
           const order = shuffleIndices(current.length);
           setStudyOrder(order);
@@ -464,10 +471,10 @@ function MainApp() {
         setStudyPos(0);
       }
     }
-  }, [screen, sentences.length, studyLessonIndex, lessons.length]);
+  }, [screen, sentences.length, studyLessonIndex, lessons.length, currentStudyList.length]);
 
   const refreshStudy = () => {
-    const current = studyLessonIndex !== null ? (lessons[studyLessonIndex] || []) : [];
+    const current = studyLessonIndex !== null ? currentStudyList : [];
     if (current.length === 0) return;
     setPopup(null);
     setWordLayouts({});
@@ -498,7 +505,7 @@ function MainApp() {
   };
 
   const speakCurrent = () => {
-    const current = studyLessonIndex !== null ? (lessons[studyLessonIndex] || []) : [];
+    const current = studyLessonIndex !== null ? currentStudyList : [];
     if (studyIndex === null || !current[studyIndex]) return;
     const text = current[studyIndex].german?.trim();
     if (!text) return;
@@ -1098,7 +1105,7 @@ function MainApp() {
                       ) : null}
                       <View style={styles.cardActions}>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => startEditWord(w.key)}>
-                          <Text style={[styles.buttonText, styles.secondaryText]}>Düzenle</Text>
+                          <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.edit')}</Text>
                         </Pressable>
                         <Pressable
                           style={[styles.button, styles.danger]}
@@ -1207,6 +1214,13 @@ function MainApp() {
                   studyLessonIndex === null ? (
                     <View>
                       <Text style={styles.title}>{t('lesson.lessons')}</Text>
+                      <Pressable style={[styles.card, { marginBottom: 12 }]} onPress={() => {
+                        setStudyLessonIndex(-1); setShowTranslation(false); setShowSentence(false);
+                        setShowNote(false);
+                      }}>
+                        <Text style={styles.cardGerman}>{t('lesson.all')}</Text>
+                        <Text style={styles.cardTurkish}>{t('lesson.allCount', { count: (sentences || []).length })}</Text>
+                      </Pressable>
                       <FlatList
                         data={lessons}
                         keyExtractor={(item, index) => `lesson-${index}`}
@@ -1231,8 +1245,8 @@ function MainApp() {
                   ) : (
                     <View style={{ gap: 12 }}>
                       <View style={[styles.studyToolbar, { flexDirection: 'row' }]}>
-                        <Text style={[styles.title, { flex: 1 }]}>
-                          {t('lesson.label', { n: (studyLessonIndex ?? 0) + 1 })}
+                        <Text style={[styles.title, { flex: 1 }]}> 
+                          {studyLessonIndex === -1 ? t('lesson.all') : t('lesson.label', { n: (studyLessonIndex ?? 0) + 1 })}
                         </Text>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => {
                           setStudyLessonIndex(null); setPopup(null); setWordLayouts({}); setShowSentence(false);
@@ -1256,7 +1270,7 @@ function MainApp() {
                         {showSentence ? (
                           <View style={styles.studySentenceContainer}>
                             <Text>
-                              {tokenizeWithSeparators(lessons[studyLessonIndex][studyIndex]?.german || '').map((part, idx) => {
+                              {tokenizeWithSeparators(currentStudyList[studyIndex]?.german || '').map((part, idx) => {
                                 if (part.type === 'sep') {
                                   // Ayırıcılar da <Text> içinde kalsın
                                   return (
@@ -1267,7 +1281,7 @@ function MainApp() {
                                 }
                                 const key = part.label.toLocaleLowerCase('tr');
                                 const meaning =
-                                  (lessons[studyLessonIndex][studyIndex]?.words || {})[key] ?? globalDict[key];
+                                  (currentStudyList[studyIndex]?.words || {})[key] ?? globalDict[key];
                                 const isKnown = !!meaning;
 
                                 return (
@@ -1275,11 +1289,11 @@ function MainApp() {
                                     key={`w${idx}`}
                                     onPress={() => {
                                       const dictAll = {
-                                        ...(lessons[studyLessonIndex][studyIndex]?.words || {}),
+                                        ...(currentStudyList[studyIndex]?.words || {}),
                                         ...(globalDict || {}),
                                       };
                                       const entries = getMeaningsCovering(
-                                        tokenizeWithSeparators(lessons[studyLessonIndex][studyIndex]?.german || ''),
+                                        tokenizeWithSeparators(currentStudyList[studyIndex]?.german || ''),
                                         idx,
                                         dictAll
                                       );
@@ -1333,16 +1347,16 @@ function MainApp() {
                       {showTranslation && (
                         <View style={styles.translationBox}>
                           <Text style={styles.translationLabel}>{t('label.turkish')}</Text>
-                          <Text style={styles.translationText}>{lessons[studyLessonIndex][studyIndex]?.turkish}</Text>
+                          <Text style={styles.translationText}>{currentStudyList[studyIndex]?.turkish}</Text>
                         </View>
                       )}
-                      {(() => { const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null; const noteText = (cs && cs.note) ? String(cs.note).trim() : ''; if (!showNote || !noteText) return null; return (<View style={styles.translationBox}><Text style={styles.translationLabel}>{t('label.note')}</Text><Text style={styles.translationText}>{noteText}</Text></View>); })()}
+                      {(() => { const cs = currentStudyList && currentStudyList[studyIndex] || null; const noteText = (cs && cs.note) ? String(cs.note).trim() : ''; if (!showNote || !noteText) return null; return (<View style={styles.translationBox}><Text style={styles.translationLabel}>{t('label.note')}</Text><Text style={styles.translationText}>{noteText}</Text></View>); })()}
                       <View style={styles.actionsCentered}>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => setShowTranslation((v) => !v)}>
                           <Text style={[styles.buttonText, styles.secondaryText]}>{showTranslation ? t('toggle.hideTranslation') : t('toggle.showTranslation')}</Text>
                         </Pressable>
                         {(() => {
-                          const cs = (lessons[studyLessonIndex] && lessons[studyLessonIndex][studyIndex]) || null;
+                          const cs = currentStudyList && currentStudyList[studyIndex] || null;
                           const noteText = (cs && cs.note) ? String(cs.note).trim() : "";
                           if (!noteText) return null;
                           return (
