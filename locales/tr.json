@@ -21,7 +21,9 @@
     "wordMeaningFor": "\"{{word}}\" için anlam",
     "languageSelection": "Dil Seçimi",
     "chooseLanguage": "Dil seçin",
-    "english": "İngilizce"
+    "english": "İngilizce",
+    "group": "Grup",
+    "groups": "Gruplar"
   },
   "placeholder": {
     "german": "Örn: Ich lerne Deutsch.",
@@ -30,7 +32,8 @@
     "search": "Ara",
     "meaning": "Türkçe anlam...",
     "searchWordMeaning": "Kelime veya anlam...",
-    "germanOrTurkish": "Almanca veya Türkçe..."
+    "germanOrTurkish": "Almanca veya Türkçe...",
+    "groupName": "Grup adı..."
   },
   "empty": {
     "noWordsInSentence": "Kelime bulunamadı. Cümle yazmayı deneyin.",
@@ -57,12 +60,13 @@
     "save": "Kaydet",
     "edit": "Düzenle",
     "delete": "Sil",
-    "nextSentence": "Başka Cümle"
+    "nextSentence": "Başka Cümle",
+    "addGroup": "Grup Ekle"
   },
   "lesson": {
     "label": "Ders {{n}}",
     "lessons": "Dersler",
-    "range": "Cümleler {{start}}-{{end}} • {{count}} cümle",
+    "range": "Cümleler {{start}}–{{end}} · {{count}} cümle",
     "pick": "Ders Seç"
   },
   "toggle": {
@@ -81,6 +85,12 @@
     "deleteSentenceBody": "Bu cümleyi silmek istediğinize emin misiniz? (Kelime anlamları korunacak)",
     "deleteWordTitle": "Kelimeyi sil",
     "deleteWordBody": "Bu kelimenin anlamını silmek istediğinize emin misiniz?",
-    "noteTitle": "Not"
+    "noteTitle": "Not",
+    "deleteGroupTitle": "Grubu sil",
+    "deleteGroupBody": "Grup silinecek. İçindeki cümleler silinmeyecek."
+  },
+  "groups": {
+    "all": "Hepsi",
+    "ungrouped": "Grupsuz"
   }
 }

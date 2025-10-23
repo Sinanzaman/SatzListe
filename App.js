@@ -33,7 +33,6 @@ function MainApp() {
   const writeTokens = useMemo(() => tokenizeWithSeparators(german), [german]);
   const [selStart, setSelStart] = useState(null); // writeTokens içinde 'word' olan index
   const [selEnd, setSelEnd] = useState(null);   // writeTokens içinde 'word' olan index
-
   // Global sözlük: daha önce girilen kelime anlamları (oturum boyunca)
   const [globalDict, setGlobalDict] = useState({}); // key(lower) -> meaning
 
@@ -65,6 +64,19 @@ function MainApp() {
   const sentenceFade = useRef(new Animated.Value(1)).current;
   const sentenceSlide = useRef(new Animated.Value(0)).current;
 
+  // Groups
+  const [groups, setGroups] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState('all'); // 'all' | 'ungrouped' | group name
+  const [groupNameInput, setGroupNameInput] = useState('');
+  const [currentGroup, setCurrentGroup] = useState(null);
+
+  // Word Groups
+  const [wordGroups, setWordGroups] = useState([]);
+  const [selectedWordGroup, setSelectedWordGroup] = useState('all');
+  const [wordGroupNameInput, setWordGroupNameInput] = useState('');
+  const [wordGroupMap, setWordGroupMap] = useState({}); // key -> group
+  const [currentWordGroup, setCurrentWordGroup] = useState(null);
+
   // Cümleler ekranı alt sekmesi ve kelime düzenleme
   const [editingWordKey, setEditingWordKey] = useState(null);
   const [editingWordMeaning, setEditingWordMeaning] = useState('');
@@ -83,6 +95,12 @@ function MainApp() {
     );
   }, [sentences, search]);
 
+  const baseList = useMemo(() => (search ? filteredSentences : sentences), [search, filteredSentences, sentences]);
+  const listForRender = useMemo(() => {
+    if (selectedGroup === 'all') return baseList;
+    return (baseList || []).filter((s) => s.group === selectedGroup);
+  }, [baseList, selectedGroup]);
+
   // Kelimeler listesi (global sözlükten)
   const wordsAll = useMemo(() => {
     const entries = Object.entries(globalDict || {});
@@ -99,6 +117,11 @@ function MainApp() {
         String(w.meaning || '').toLocaleLowerCase('tr').includes(q)
     );
   }, [wordsAll, search]);
+
+  const wordsListForRender = useMemo(() => {
+    if (selectedWordGroup === 'all') return filteredWordsAll;
+    return (filteredWordsAll || []).filter((w) => (wordGroupMap || {})[w.key] === selectedWordGroup);
+  }, [filteredWordsAll, selectedWordGroup, wordGroupMap]);
 
   // Cümleleri 10'arlı derslere böl
   const lessons = useMemo(() => {
@@ -119,6 +142,11 @@ function MainApp() {
 
   const STORAGE_SENTENCES = 'satzliste.sentences.v1';
   const STORAGE_DICT = 'satzliste.dict.v1';
+  const STORAGE_GROUPS = 'satzliste.groups.v1';
+  const STORAGE_SELECTED_GROUP = 'satzliste.selectedGroup.v1';
+  const STORAGE_WORD_GROUPS = 'satzliste.wordGroups.v1';
+  const STORAGE_WORD_GROUP_MAP = 'satzliste.wordGroupMap.v1';
+  const STORAGE_SELECTED_WORD_GROUP = 'satzliste.selectedWordGroup.v1';
 
   // Basit karistirma: 0..n-1'i Fisher-Yates ile karistir
   const shuffleIndices = (n) => {
@@ -179,10 +207,15 @@ function MainApp() {
   useEffect(() => {
     (async () => {
       try {
-        const [rawSentences, rawDict, storedLang] = await Promise.all([
+        const [rawSentences, rawDict, storedLang, rawGroups, rawSelGroup, rawWordGroups, rawWordGroupMap, rawSelWordGroup] = await Promise.all([
           AsyncStorage.getItem(STORAGE_SENTENCES),
           AsyncStorage.getItem(STORAGE_DICT),
           AsyncStorage.getItem('satzliste.lang'),
+          AsyncStorage.getItem(STORAGE_GROUPS),
+          AsyncStorage.getItem(STORAGE_SELECTED_GROUP),
+          AsyncStorage.getItem(STORAGE_WORD_GROUPS),
+          AsyncStorage.getItem(STORAGE_WORD_GROUP_MAP),
+          AsyncStorage.getItem(STORAGE_SELECTED_WORD_GROUP),
         ]);
         if (rawSentences) {
           try {
@@ -199,6 +232,38 @@ function MainApp() {
         if (storedLang) {
           setLang(storedLang);
           try { i18n.changeLanguage(storedLang); } catch { }
+        }
+        if (rawGroups) {
+          try {
+            const parsed = JSON.parse(rawGroups);
+            if (Array.isArray(parsed)) setGroups(parsed.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.trim()));
+          } catch { }
+        }
+        if (rawSelGroup) {
+          try {
+            const g = JSON.parse(rawSelGroup);
+            // Normalize legacy 'ungrouped' to 'all'
+            if (g === 'ungrouped') setSelectedGroup('all');
+            else if (g === 'all' || typeof g === 'string') setSelectedGroup(g);
+          } catch { }
+        }
+        if (rawWordGroups) {
+          try {
+            const parsed = JSON.parse(rawWordGroups);
+            if (Array.isArray(parsed)) setWordGroups(parsed.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.trim()));
+          } catch { }
+        }
+        if (rawWordGroupMap) {
+          try {
+            const parsed = JSON.parse(rawWordGroupMap);
+            if (parsed && typeof parsed === 'object') setWordGroupMap(parsed);
+          } catch { }
+        }
+        if (rawSelWordGroup) {
+          try {
+            const g = JSON.parse(rawSelWordGroup);
+            if (g === 'all' || typeof g === 'string') setSelectedWordGroup(g);
+          } catch { }
         }
       } finally {
         setHydrated(true);
@@ -221,6 +286,41 @@ function MainApp() {
     } catch { }
   }, [globalDict, hydrated]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      AsyncStorage.setItem(STORAGE_GROUPS, JSON.stringify(groups));
+    } catch { }
+  }, [groups, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      AsyncStorage.setItem(STORAGE_SELECTED_GROUP, JSON.stringify(selectedGroup));
+    } catch { }
+  }, [selectedGroup, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      AsyncStorage.setItem(STORAGE_WORD_GROUPS, JSON.stringify(wordGroups));
+    } catch { }
+  }, [wordGroups, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      AsyncStorage.setItem(STORAGE_WORD_GROUP_MAP, JSON.stringify(wordGroupMap));
+    } catch { }
+  }, [wordGroupMap, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      AsyncStorage.setItem(STORAGE_SELECTED_WORD_GROUP, JSON.stringify(selectedWordGroup));
+    } catch { }
+  }, [selectedWordGroup, hydrated]);
+
   const handleClear = () => {
     setGerman('');
     setTurkish('');
@@ -230,6 +330,7 @@ function MainApp() {
     setEditingId(null);
     setNote('');
     setShowNote(false);
+    setCurrentGroup(null);
   };
 
   const toggleLanguage = async () => {
@@ -311,7 +412,7 @@ function MainApp() {
       setSentences((prev) =>
         prev.map((it) =>
           it.id === editingId
-            ? { ...it, german: german.trim(), turkish: turkish.trim(), words: wordsMap, note: note.trim() }
+            ? { ...it, german: german.trim(), turkish: turkish.trim(), words: wordsMap, note: note.trim(), group: currentGroup || null }
             : it
         )
       );
@@ -322,6 +423,7 @@ function MainApp() {
         turkish: turkish.trim(),
         words: wordsMap,
         note: note.trim(),
+        group: currentGroup || null,
       };
       setSentences((prev) => [...prev, item]);
     }
@@ -484,11 +586,13 @@ function MainApp() {
   const startEditWord = (key) => {
     setEditingWordKey(key);
     setEditingWordMeaning(String(globalDict[key] || ''));
+    setCurrentWordGroup((wordGroupMap || {})[key] || null);
   };
 
   const cancelEditWord = () => {
     setEditingWordKey(null);
     setEditingWordMeaning('');
+    setCurrentWordGroup(null);
   };
 
   const deleteWordGlobal = (key) => {
@@ -497,6 +601,7 @@ function MainApp() {
       delete next[key];
       return next;
     });
+    setWordGroupMap((prev) => { const next = { ...prev }; delete next[key]; return next; });
     setSentences((prev) =>
       prev.map((it) => {
         const w = it.words || {};
@@ -518,6 +623,7 @@ function MainApp() {
       return;
     }
     setGlobalDict((prev) => ({ ...prev, [k]: val }));
+    setWordGroupMap((prev) => ({ ...prev, [k]: currentWordGroup || null }));
     setSentences((prev) =>
       prev.map((it) => {
         const w = it.words || {};
@@ -588,7 +694,22 @@ function MainApp() {
                   textAlignVertical="top"
                 />
               </View>
-              {/* Kelime çipleri */}
+              {/* Grup secimi (istege bagli) */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>{t('label.group')}</Text>
+                <ScrollView horizontal contentContainerStyle={{ gap: 8 }} showsHorizontalScrollIndicator={false}>
+                  {(groups || []).map((g) => (
+                    <Pressable
+                      key={g}
+                      style={[styles.wordChip, currentGroup === g && styles.chipActive]}
+                      onPress={() => setCurrentGroup((prev) => (prev === g ? null : g))}
+                    >
+                      <Text style={styles.wordChipText}>{g}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>{t('label.wordMeanings')}</Text>
                 <View style={styles.wordWrap}>
@@ -726,6 +847,67 @@ function MainApp() {
               >
                 <Text style={styles.title}>{t('tabs.sentences')}</Text>
                 <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>{t('label.groups')}</Text>
+                  <ScrollView horizontal contentContainerStyle={{ gap: 8 }} showsHorizontalScrollIndicator={false}>
+                    <Pressable style={[styles.wordChip, selectedGroup === 'all' && styles.chipActive]} onPress={() => setSelectedGroup('all')}>
+                      <Text style={styles.wordChipText}>{t('groups.all')}</Text>
+                    </Pressable>
+                    {(groups || []).map((g) => (
+                      <View key={g} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Pressable style={[styles.wordChip, selectedGroup === g && styles.chipActive]} onPress={() => setSelectedGroup(g)}>
+                          <Text style={styles.wordChipText}>{g}</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.iconButtonTiny}
+                          onPress={() => {
+                            Alert.alert(
+                              t('alerts.deleteGroupTitle'),
+                              t('alerts.deleteGroupBody'),
+                              [
+                                { text: t('actions.cancel'), style: 'cancel' },
+                                {
+                                  text: t('actions.delete'),
+                                  style: 'destructive',
+                                  onPress: () => {
+                                    setGroups((prev) => prev.filter((x) => x !== g));
+                                    setSentences((prev) => prev.map((it) => (it.group === g ? { ...it, group: null } : it)));
+                                    if (selectedGroup === g) setSelectedGroup('all');
+                                  },
+                                },
+                              ]
+                            );
+                          }}
+                        >
+                          <Text style={styles.iconTextSmall}>x</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <TextInput
+                      style={[styles.input, styles.inputSingle, { flex: 1 }]}
+                      placeholder={t('placeholder.groupName')}
+                      value={groupNameInput}
+                      onChangeText={setGroupNameInput}
+                    />
+                    <Pressable
+                      style={[styles.button, groupNameInput.trim() ? styles.primary : styles.disabled]}
+                      disabled={!groupNameInput.trim()}
+                      onPress={() => {
+                        const name = groupNameInput.trim();
+                        if (!name) return;
+                        setGroups((prev) => {
+                          const exists = (prev || []).some((x) => x.toLocaleLowerCase('tr') === name.toLocaleLowerCase('tr'));
+                          return exists ? prev : [...prev, name];
+                        });
+                        setGroupNameInput('');
+                      }}
+                    >
+                      <Text style={[styles.buttonText, groupNameInput.trim() ? styles.primaryText : styles.disabledText]}>{t('actions.addGroup')}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <View style={styles.fieldGroup}>
                   <Text style={styles.label}>{t('label.search')}</Text>
                   <TextInput
                     style={[styles.input, styles.inputSingle]}
@@ -737,12 +919,15 @@ function MainApp() {
                   />
                 </View>
 
-                {(search ? filteredSentences : sentences).length === 0 ? (
+                {(listForRender || []).length === 0 ? (
                   <Text style={styles.muted}>{t('empty.noSentences')}</Text>
                 ) : (
-                  (search ? filteredSentences : sentences).map((s) => (
+                  (listForRender || []).map((s) => (
                     <View key={s.id} style={styles.card}>
                       <Text style={styles.cardGerman}>{s.german}</Text>
+                      {s.group ? (
+                        <Text style={styles.muted}>{t('label.group')}: {s.group}</Text>
+                      ) : null}
                       {(() => {
                         const idx = idToIndex.get(s.id);
                         if (typeof idx === 'number' && idx >= 0) {
@@ -781,6 +966,7 @@ function MainApp() {
                             setNote(s.note || '');
                             setSelectedWord(null);
                             setSelectedMeaning('');
+                            setCurrentGroup(s.group || null);
                             setScreen('write');
                           }}
                         >
@@ -817,6 +1003,72 @@ function MainApp() {
                 keyboardShouldPersistTaps="handled"
               >
                 <Text style={styles.title}>{t('tabs.words')}</Text>
+                {/* Word group selection and management */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>{t('label.groups')}</Text>
+                  <ScrollView horizontal contentContainerStyle={{ gap: 8 }} showsHorizontalScrollIndicator={false}>
+                    <Pressable style={[styles.wordChip, selectedWordGroup === 'all' && styles.chipActive]} onPress={() => setSelectedWordGroup('all')}>
+                      <Text style={styles.wordChipText}>{t('groups.all')}</Text>
+                    </Pressable>
+                    {(wordGroups || []).map((g) => (
+                      <View key={g} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Pressable style={[styles.wordChip, selectedWordGroup === g && styles.chipActive]} onPress={() => setSelectedWordGroup(g)}>
+                          <Text style={styles.wordChipText}>{g}</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.iconButtonTiny}
+                          onPress={() => {
+                            Alert.alert(
+                              t('alerts.deleteGroupTitle'),
+                              t('alerts.deleteGroupBody'),
+                              [
+                                { text: t('actions.cancel'), style: 'cancel' },
+                                {
+                                  text: t('actions.delete'),
+                                  style: 'destructive',
+                                  onPress: () => {
+                                    setWordGroups((prev) => prev.filter((x) => x !== g));
+                                    setWordGroupMap((prev) => {
+                                      const next = { ...prev };
+                                      Object.keys(next).forEach((k) => { if (next[k] === g) delete next[k]; });
+                                      return next;
+                                    });
+                                    if (selectedWordGroup === g) setSelectedWordGroup('all');
+                                  },
+                                },
+                              ]
+                            );
+                          }}
+                        >
+                          <Text style={styles.iconTextSmall}>x</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <TextInput
+                      style={[styles.input, styles.inputSingle, { flex: 1 }]}
+                      placeholder={t('placeholder.groupName')}
+                      value={wordGroupNameInput}
+                      onChangeText={setWordGroupNameInput}
+                    />
+                    <Pressable
+                      style={[styles.button, wordGroupNameInput.trim() ? styles.primary : styles.disabled]}
+                      disabled={!wordGroupNameInput.trim()}
+                      onPress={() => {
+                        const name = wordGroupNameInput.trim();
+                        if (!name) return;
+                        setWordGroups((prev) => {
+                          const exists = (prev || []).some((x) => x.toLocaleLowerCase('tr') === name.toLocaleLowerCase('tr'));
+                          return exists ? prev : [...prev, name];
+                        });
+                        setWordGroupNameInput('');
+                      }}
+                    >
+                      <Text style={[styles.buttonText, wordGroupNameInput.trim() ? styles.primaryText : styles.disabledText]}>{t('actions.addGroup')}</Text>
+                    </Pressable>
+                  </View>
+                </View>
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>{t('label.search')}</Text>
                   <TextInput
@@ -829,16 +1081,21 @@ function MainApp() {
                   />
                 </View>
 
-                {filteredWordsAll.length === 0 ? (
+                {wordsListForRender.length === 0 ? (
                   <Text style={styles.muted}>{t('empty.noWords')}</Text>
                 ) : (
-                  filteredWordsAll.map((w) => (
+                  wordsListForRender.map((w) => (
                     <View key={w.key} style={styles.card}>
                       <Text style={styles.cardGerman}>{w.key}</Text>
                       <Text style={styles.cardTurkish}>{w.meaning}</Text>
                       <Pressable style={styles.speakerFloating} onPress={() => speakSentence(w.key)}>
                         <Text style={styles.iconTextSmall}>🔊</Text>
                       </Pressable>
+                      {(wordGroupMap[w.key]) ? (
+                        <Text style={styles.muted}>
+                          {t('label.group')}: {wordGroupMap[w.key]}
+                        </Text>
+                      ) : null}
                       <View style={styles.cardActions}>
                         <Pressable style={[styles.button, styles.secondary]} onPress={() => startEditWord(w.key)}>
                           <Text style={[styles.buttonText, styles.secondaryText]}>Düzenle</Text>
@@ -873,6 +1130,19 @@ function MainApp() {
                       onChangeText={setEditingWordMeaning}
                       autoCorrect={false}
                     />
+                    <View style={{ height: 8 }} />
+                    <Text style={styles.label}>{t('label.group')}</Text>
+                    <ScrollView horizontal contentContainerStyle={{ gap: 8 }} showsHorizontalScrollIndicator={false}>
+                      {(wordGroups || []).map((g) => (
+                        <Pressable
+                          key={g}
+                          style={[styles.wordChip, currentWordGroup === g && styles.chipActive]}
+                          onPress={() => setCurrentWordGroup((prev) => (prev === g ? null : g))}
+                        >
+                          <Text style={styles.wordChipText}>{g}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
                     <View style={styles.actions}>
                       <Pressable style={[styles.button, styles.secondary]} onPress={cancelEditWord}>
                         <Text style={[styles.buttonText, styles.secondaryText]}>{t('actions.close')}</Text>
@@ -1233,6 +1503,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: '#f9fafb',
+  },
+  chipActive: {
+    backgroundColor: '#dbeafe',
+    borderColor: '#2563eb',
   },
   wordChipText: {
     fontSize: 14,

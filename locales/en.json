@@ -21,7 +21,9 @@
     "wordMeaningFor": "\"{{word}}\" meaning",
     "languageSelection": "Language",
     "chooseLanguage": "Choose language",
-    "english": "English"
+    "english": "English",
+    "group": "Group",
+    "groups": "Groups"
   },
   "placeholder": {
     "german": "Ex: Ich lerne Deutsch.",
@@ -30,7 +32,8 @@
     "search": "Search",
     "meaning": "Enter Turkish meaning...",
     "searchWordMeaning": "Word or meaning...",
-    "germanOrTurkish": "German or Turkish..."
+    "germanOrTurkish": "German or Turkish...",
+    "groupName": "Group name..."
   },
   "empty": {
     "noWordsInSentence": "No words found. Try writing a sentence.",
@@ -57,12 +60,13 @@
     "save": "Save",
     "edit": "Edit",
     "delete": "Delete",
-    "nextSentence": "Next Sentence"
+    "nextSentence": "Next Sentence",
+    "addGroup": "Add Group"
   },
   "lesson": {
     "label": "Lesson {{n}}",
     "lessons": "Lessons",
-    "range": "Sentences {{start}}–{{end}} • {{count}} sentences",
+    "range": "Sentences {{start}}–{{end}} · {{count}} sentences",
     "pick": "Select Lesson"
   },
   "toggle": {
@@ -81,6 +85,12 @@
     "deleteSentenceBody": "Are you sure you want to delete this sentence? (Word meanings will be preserved)",
     "deleteWordTitle": "Delete word",
     "deleteWordBody": "Are you sure you want to delete this word’s meaning?",
-    "noteTitle": "Note"
+    "noteTitle": "Note",
+    "deleteGroupTitle": "Delete group",
+    "deleteGroupBody": "The group will be deleted. Sentences will not be deleted."
+  },
+  "groups": {
+    "all": "All",
+    "ungrouped": "Ungrouped"
   }
 }
